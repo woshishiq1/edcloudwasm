@@ -1,0 +1,86 @@
+name: Sync upstream and deploy
+
+on:
+  schedule:
+    - cron: "30 3 * * *"
+  workflow_dispatch:
+    inputs:
+      force_deploy:
+        description: "Force redeploy to Cloudflare"
+        required: false
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: edcloudwasm-sync
+  cancel-in-progress: false
+
+jobs:
+  sync-and-deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      UPSTREAM_REPOSITORY: 1345695/edcloudwasm
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Fetch upstream
+        run: |
+          git remote add upstream "https://github.com/${UPSTREAM_REPOSITORY}.git"
+          git fetch upstream main
+
+      - name: Align main to upstream
+        id: sync
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          upstream_commit="$(git rev-parse upstream/main)"
+          head_commit="$(git rev-parse HEAD)"
+
+          echo "upstream_commit=${upstream_commit}"
+          echo "head_commit=${head_commit}"
+
+          content_diff="$(git diff --name-only "${upstream_commit}" HEAD -- ":!.github/**" ":!wrangler.toml" || true)"
+
+          if [ -z "${content_diff}" ]; then
+            echo "No upstream application changes detected."
+            echo "updated=false" >> "${GITHUB_OUTPUT}"
+          else
+            echo "Upstream updates detected: ${content_diff}"
+            git checkout --force "${upstream_commit}" -- .
+            git checkout HEAD -- .github/ wrangler.toml
+
+            if ! git diff --cached --quiet; then
+              git commit -m "chore: sync upstream ${UPSTREAM_REPOSITORY} (${upstream_commit:0:7})"
+              git push origin HEAD:main
+              echo "Synced and pushed to main."
+              echo "updated=true" >> "${GITHUB_OUTPUT}"
+            else
+              echo "No staged changes after applying upstream."
+              echo "updated=false" >> "${GITHUB_OUTPUT}"
+            fi
+          fi
+
+      - name: Deploy to Cloudflare Workers
+        if: steps.sync.outputs.updated == 'true' || github.event_name == 'workflow_dispatch'
+        run: |
+          npx wrangler deploy
