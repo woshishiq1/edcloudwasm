@@ -96,8 +96,8 @@ jobs:
           print('wrangler.toml 配置更新完成，已恢复变量:', list(vals.keys()))
           EOF
 
-          # 4. 检查是否有变动并提交
-          if ! git diff --quiet; then
+          # 4. 安全地检查是否有变动并提交（避免 set -e 拦截退出码）
+          if [ -n "$(git status --porcelain)" ]; then
             git add -A
             git commit -m "chore: sync upstream ${UPSTREAM_REPOSITORY} (${upstream_commit:0:7}) with custom config"
             git push origin HEAD:main
