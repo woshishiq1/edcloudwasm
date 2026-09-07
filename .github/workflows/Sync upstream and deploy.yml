@@ -45,7 +45,7 @@ jobs:
           git remote add upstream "https://github.com/${UPSTREAM_REPOSITORY}.git"
           git fetch upstream main
 
-      - name: Align main to upstream
+      - name: Align main to upstream & update wrangler.toml
         id: sync
         shell: bash
         run: |
@@ -59,25 +59,53 @@ jobs:
           echo "upstream_commit=${upstream_commit}"
           echo "head_commit=${head_commit}"
 
-          content_diff="$(git diff --name-only "${upstream_commit}" HEAD -- ":!.github/**" ":!wrangler.toml" || true)"
+          # 1. 备份你当前的 wrangler.toml 配置
+          cp wrangler.toml /tmp/my_wrangler.toml
 
-          if [ -z "${content_diff}" ]; then
-            echo "No upstream application changes detected."
-            echo "updated=false" >> "${GITHUB_OUTPUT}"
+          # 2. 将项目整体更新至上游最新（拉取上游最新 wrangler.toml），保留你的 .github/
+          git checkout --force "${upstream_commit}" -- .
+          git checkout HEAD -- .github/
+
+          # 3. 处理 wrangler.toml：注入个人变量（含 name）+ 确保 [limits] 和 cpu_ms 被注释
+          python3 - <<'EOF'
+          import re
+
+          # 读取备份文件中的个人私密变量及 name 字段
+          mine = open('/tmp/my_wrangler.toml').read()
+          vals = {}
+          for key in ['name', 'UUID', 'PASSWORD', 'SSPASS', 'S5HTTPUSER', 'S5HTTPPASS']:
+              m = re.search(rf'^{key}\s*=\s*"([^"]*)"', mine, re.M)
+              if m:
+                  vals[key] = m.group(1)
+
+          # 读取上游最新的 wrangler.toml
+          cur = open('wrangler.toml').read()
+
+          # 强制填入你的自定义配置和私密变量
+          for key, val in vals.items():
+              cur = re.sub(rf'^{key}\s*=\s*"[^"]*"', f'{key} = "{val}"', cur, flags=re.M)
+
+          # 确保 [limits] 和 cpu_ms 行都被加上 '#' 注释
+          cur = re.sub(r'^\s*(\[limits\])', r'#\1', cur, flags=re.M)
+          cur = re.sub(r'^\s*(cpu_ms\s*=.*)', r'#\1', cur, flags=re.M)
+
+          # 清理连续重复注释（防止多次运行时变成 ##[limits]）
+          cur = re.sub(r'^#+\s*#', '#', cur, flags=re.M)
+
+          open('wrangler.toml', 'w').write(cur)
+          print('wrangler.toml 配置更新完成，已恢复变量:', list(vals.keys()))
+          EOF
+
+          # 4. 检查是否有变动并提交
+          if ! git diff --quiet; then
+            git add -A
+            git commit -m "chore: sync upstream ${UPSTREAM_REPOSITORY} (${upstream_commit:0:7}) with custom config"
+            git push origin HEAD:main
+            echo "Synced and pushed to main."
+            echo "updated=true" >> "${GITHUB_OUTPUT}"
           else
-            echo "Upstream updates detected: ${content_diff}"
-            git checkout --force "${upstream_commit}" -- .
-            git checkout HEAD -- .github/ wrangler.toml
-
-            if ! git diff --cached --quiet; then
-              git commit -m "chore: sync upstream ${UPSTREAM_REPOSITORY} (${upstream_commit:0:7})"
-              git push origin HEAD:main
-              echo "Synced and pushed to main."
-              echo "updated=true" >> "${GITHUB_OUTPUT}"
-            else
-              echo "No staged changes after applying upstream."
-              echo "updated=false" >> "${GITHUB_OUTPUT}"
-            fi
+            echo "No changes after applying upstream and custom config."
+            echo "updated=false" >> "${GITHUB_OUTPUT}"
           fi
 
       - name: Deploy to Cloudflare Workers
