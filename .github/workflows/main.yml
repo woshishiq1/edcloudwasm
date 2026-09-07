@@ -17,7 +17,7 @@ jobs:
       - name: Merge upstream
         run: |
           git config user.name "woshishiq1"
-          git config user.email "woshishiq1@users.noreply.github.com"
+          git config user.email "90903172+woshishiq1@users.noreply.github.com"
           git remote add upstream https://github.com/1345695/edcloudwasm.git
           git fetch upstream
           # 先保存我的配置
