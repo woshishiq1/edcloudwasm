@@ -1625,7 +1625,7 @@ const handleXwebPost = async (request) => {
     const reader = request.body?.getReader({mode: 'byob'});
     if (!reader) return new Response(null, {status: 400});
     const state = {socks5State: 0, tcpWriter: null, tcpSocket: null, needMore: false, allowNeedMore: true, disableSsAead: true, xwebPipeTo: true};
-    const bridge = new IdentityTransformStream({highWaterMark: 64 * 1024 * 1024}), upBridge = new IdentityTransformStream({highWaterMark: 1024 * 1024 * 1024}), responseWriter = bridge.writable.getWriter();
+    const bridge = new IdentityTransformStream({highWaterMark: 1024 * 1024}), upBridge = new IdentityTransformStream({highWaterMark: 1024 * 1024 * 1024}), responseWriter = bridge.writable.getWriter();
     let cleaned = false, ac = new AbortController();
     const cleanup = (reason) => {
         if (cleaned) return;
@@ -1660,10 +1660,7 @@ const handleXwebPost = async (request) => {
                         flushBuffer();
                         await state.rawTcpWriter.ready;
                         reader.releaseLock(), state.rawTcpWriter.releaseLock(), state.xwebPipeTo = false, bufferView = null, spareBuffer = null;
-                        const up1 = request.body.pipeTo(upBridge.writable, {signal: ac.signal});
-                        const up2 = upBridge.readable.pipeTo(state.tcpSocket.writable, {signal: ac.signal});
-                        void up1.catch(cleanup), void up2.catch(cleanup);
-                        await Promise.allSettled([up1, up2]);
+                        request.body.pipeThrough(upBridge, {signal: ac.signal}).pipeTo(state.tcpSocket.writable, {signal: ac.signal}).catch(cleanup);
                         break;
                     }
                     used > 24576 ? flushBuffer() : (timerId ||= setTimeout(flushBuffer, 2));
@@ -1672,8 +1669,7 @@ const handleXwebPost = async (request) => {
                     await handleSession(bufferView.subarray(0, used), state, request, writable, cleanup);
                     if (state.tcpSocket && state.xwebPipeTo && !state.downstreamPiped) {
                         state.downstreamPiped = true, responseWriter.releaseLock();
-                        const down = state.tcpSocket.readable.pipeTo(bridge.writable, {signal: ac.signal});
-                        void down.then(() => cleanup(), cleanup);
+                        state.tcpSocket.readable.pipeTo(bridge.writable, {signal: ac.signal}).then(() => cleanup(), cleanup);
                     }
                     if (!state.needMore) used = 0;
                 }
