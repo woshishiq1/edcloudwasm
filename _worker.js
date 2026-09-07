@@ -1626,11 +1626,17 @@ const handleXwebPost = async (request) => {
     if (!reader) return new Response(null, {status: 400});
     const state = {socks5State: 0, tcpWriter: null, tcpSocket: null, needMore: false, allowNeedMore: true, disableSsAead: true, xwebPipeTo: true};
     const bridge = new IdentityTransformStream({highWaterMark: 64 * 1024 * 1024}), upBridge = new IdentityTransformStream({highWaterMark: 1024 * 1024 * 1024}), responseWriter = bridge.writable.getWriter();
-    const close = () => {if (state.xwebPipeTo) responseWriter.close().catch(() => {})};
+    let cleaned = false, ac = new AbortController();
+    const cleanup = (reason) => {
+        if (cleaned) return;
+        cleaned = true;
+        !ac.signal.aborted && ac.abort(reason);
+        try {state.tcpSocket?.close()} catch {}
+        if (state.xwebPipeTo) try {responseWriter.abort(reason).catch(() => {})} catch {}
+    };
     const writable = {send(chunk) {if (chunk?.byteLength) return responseWriter.write(chunk)}};
     (async () => {
-        let bufferView = new Uint8Array(32768), spareBuffer = new ArrayBuffer(8192);
-        let used = 0, uploaded = 0, timerId = null, done, value;
+        let bufferView = new Uint8Array(32768), spareBuffer = new ArrayBuffer(8192), used = 0, uploaded = 0, timerId = null, done, value;
         const flushBuffer = () => {
             if (used > 0 && state.tcpWriter && bufferView) (state.tcpWriter(bufferView.subarray(0, used)), used = 0);
             timerId && (clearTimeout(timerId), timerId = null);
@@ -1649,29 +1655,38 @@ const handleXwebPost = async (request) => {
                 if (!chunkLen) continue;
                 used += chunkLen;
                 if (state.tcpWriter) {
-                    uploaded ++;
-                    if (uploaded > 8000) {
+                    uploaded++;
+                    if (uploaded >= 8000) {
                         flushBuffer();
                         await state.rawTcpWriter.ready;
-                        reader.releaseLock(), state.rawTcpWriter.releaseLock(), state.xwebPipeTo = false;
-                        bufferView = null, spareBuffer = null;
-                        request.body.pipeTo(upBridge.writable);
-                        upBridge.readable.pipeTo(state.tcpSocket.writable);
+                        reader.releaseLock(), state.rawTcpWriter.releaseLock(), state.xwebPipeTo = false, bufferView = null, spareBuffer = null;
+                        const up1 = request.body.pipeTo(upBridge.writable, {signal: ac.signal});
+                        const up2 = upBridge.readable.pipeTo(state.tcpSocket.writable, {signal: ac.signal});
+                        void up1.catch(cleanup), void up2.catch(cleanup);
+                        await Promise.allSettled([up1, up2]);
                         break;
                     }
                     used > 24576 ? flushBuffer() : (timerId ||= setTimeout(flushBuffer, 2));
                 } else {
                     state.needMore = false;
-                    await handleSession(bufferView.subarray(0, used), state, request, writable, close);
+                    await handleSession(bufferView.subarray(0, used), state, request, writable, cleanup);
                     if (state.tcpSocket && state.xwebPipeTo && !state.downstreamPiped) {
                         state.downstreamPiped = true, responseWriter.releaseLock();
-                        state.tcpSocket.readable.pipeTo(bridge.writable);
+                        const down = state.tcpSocket.readable.pipeTo(bridge.writable, {signal: ac.signal});
+                        void down.then(() => cleanup(), cleanup);
                     }
                     if (!state.needMore) used = 0;
                 }
             }
-        } catch {used = 0, close()} finally {flushBuffer(), bufferView = null, spareBuffer = null}
-    })().catch(close);
+        } catch (e) {
+            used = 0;
+            try {await reader?.cancel(e)} catch {}
+            cleanup(e);
+        } finally {
+            flushBuffer(), bufferView = null, spareBuffer = null;
+            if (state.xwebPipeTo && !state.tcpSocket) cleanup();
+        }
+    })().catch(cleanup);
     return new Response(bridge.readable, {headers: xwebHeaders});
 };
 const getSub = async (request, url, uuid) => {
