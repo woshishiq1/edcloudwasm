@@ -2,7 +2,7 @@ name: Sync upstream and deploy
 
 on:
   schedule:
-    - cron: "30 3 * * *"
+    - cron: "0 */3 * * *"
   workflow_dispatch:
     inputs:
       force_deploy:
