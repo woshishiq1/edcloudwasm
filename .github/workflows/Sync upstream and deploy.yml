@@ -96,14 +96,19 @@ jobs:
           print('wrangler.toml 配置更新完成，已恢复变量:', list(vals.keys()))
           EOF
 
-          # 4. 安全地检查是否有变动并提交（避免 set -e 拦截退出码）
-          if [ -n "$(git status --porcelain)" ]; then
-            git add -A
+          # 4. 安全地检查是否有变动并提交
+          # 先暂存所有修改
+          git add -A
+
+          # 检查暂存区与 HEAD 是否有实际修改（解决上游无更新时 git status 误判引发的 commit 报错）
+          if ! git diff --cached --quiet; then
             git commit -m "chore: sync upstream ${UPSTREAM_REPOSITORY} (${upstream_commit:0:7}) with custom config"
             git push origin HEAD:main
             echo "Synced and pushed to main."
             echo "updated=true" >> "${GITHUB_OUTPUT}"
           else
+            # 上游无更新时，彻底重置工作区与暂存区，清除 git checkout 留下的索引标记
+            git reset --hard HEAD
             echo "No changes after applying upstream and custom config."
             echo "updated=false" >> "${GITHUB_OUTPUT}"
           fi
