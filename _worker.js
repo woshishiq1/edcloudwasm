@@ -1019,12 +1019,9 @@ const connectViaTurnProxy = async ({hostname, port, username, password}, {addrTy
     let targetIp = binaryAddrToString(addrType, addrBytes);
     if (isHttp) addrType = addrTypeIs(targetIp);
     if (addrType === 3) {
-        targetIp = concurrentDnsResolve(targetIp, 'A')
-            .then(answer => answer?.find(record => record.type === 1)?.data ?? null)
-            .catch(() => null);
+        targetIp = concurrentDnsResolve(targetIp, 'A').then(answer => answer?.find(record => record.type === 1)?.data ?? null).catch(() => null);
     } else if (addrType === 4) {return null}
-    let ctrl = null, data = null, dataPromise = null, ctrlTls = null, dataTls = null;
-    let cw = null, cr = null, ctrlExtra = null, closed = false, refreshTimer = null;
+    let ctrl = null, data = null, dataPromise = null, ctrlTls = null, dataTls = null, cw = null, cr = null, ctrlExtra = null, closed = false, refreshTimer = null;
     const proxyIsIp = addrTypeIs(hostname) !== 3;
     const close = () => {
         closed = true;
@@ -1107,8 +1104,7 @@ const connectViaTurnProxy = async ({hostname, port, username, password}, {addrTy
             const keyBytes = await md5(`${username}:${realm}:${password}`);
             cryptoKey = await crypto.subtle.importKey('raw', keyBytes, {name: 'HMAC', hash: 'SHA-1'}, false, ['sign']);
         }
-        authRealm = realm;
-        aa = [stunAttr(0x006, textEncoder.encode(username)), stunAttr(0x014, textEncoder.encode(authRealm)), stunAttr(0x015, nonce)];
+        authRealm = realm, aa = [stunAttr(0x006, textEncoder.encode(username)), stunAttr(0x014, textEncoder.encode(authRealm)), stunAttr(0x015, nonce)];
         return true;
     };
     const controlRequest = async (type, attrs, expectedType) => {
@@ -1127,8 +1123,7 @@ const connectViaTurnProxy = async ({hostname, port, username, password}, {addrTy
     try {
         const ctrlPromise = createConn();
         dataPromise = createConn().then(res => {
-            data = res.sock;
-            dataTls = res.tls;
+            data = res.sock, dataTls = res.tls;
             if (closed) {
                 try {res.tls?.close()} catch {}
                 try {res.sock?.close()} catch {}
@@ -1137,8 +1132,7 @@ const connectViaTurnProxy = async ({hostname, port, username, password}, {addrTy
         });
         dataPromise.catch(() => {});
         const cRes = await ctrlPromise;
-        ctrl = cRes.sock;
-        ctrlTls = cRes.tls;
+        ctrl = cRes.sock, ctrlTls = cRes.tls;
         const cIsCustom = cRes.isCustom;
         cw = cIsCustom ? {write: c => ctrlTls.write(c), releaseLock: () => {}} : ctrl.writable.getWriter();
         cr = cIsCustom ? {
@@ -1157,39 +1151,27 @@ const connectViaTurnProxy = async ({hostname, port, username, password}, {addrTy
         const peer = stunAttr(0x012, xorPeer(targetAddress, targetPort));
         let permissionTid = null, connectTid = null, pm = null, cm = null;
         if (r.type === 0x113 && username && parseErr(r.attrs[0x009]) === 401) {
-            const realm = textDecoder.decode(r.attrs[0x014] ?? []), nonce = r.attrs[0x015] ?? [];
-            const keyBytes = await md5(`${username}:${realm}:${password}`);
-            cryptoKey = await crypto.subtle.importKey('raw', keyBytes, {name: 'HMAC', hash: 'SHA-1'}, false, ['sign']);
-            authRealm = realm;
+            const realm = textDecoder.decode(r.attrs[0x014] ?? []), nonce = r.attrs[0x015] ?? [], keyBytes = await md5(`${username}:${realm}:${password}`);
+            cryptoKey = await crypto.subtle.importKey('raw', keyBytes, {name: 'HMAC', hash: 'SHA-1'}, false, ['sign']), authRealm = realm;
             aa = [stunAttr(0x006, textEncoder.encode(username)), stunAttr(0x014, textEncoder.encode(realm)), stunAttr(0x015, nonce)];
             const allocateTid = newTid();
             permissionTid = newTid(), connectTid = newTid();
-            const [am, permissionMsg, connectMsg] = await Promise.all([
-                sign(stunMsg(0x003, allocateTid, [stunAttr(0x019, new Uint8Array([6, 0, 0, 0])), ...aa])),
-                sign(stunMsg(0x008, permissionTid, [peer, ...aa])),
-                sign(stunMsg(0x00A, connectTid, [peer, ...aa]))
-            ]);
+            const [am, permissionMsg, connectMsg] = await Promise.all([sign(stunMsg(0x003, allocateTid, [stunAttr(0x019, new Uint8Array([6, 0, 0, 0])), ...aa])), sign(stunMsg(0x008, permissionTid, [peer, ...aa])), sign(stunMsg(0x00A, connectTid, [peer, ...aa]))]);
             pm = permissionMsg, cm = connectMsg;
             await cw.write(cat(am, pm, cm));
             r = await readControl(allocateTid);
         } else if (r.type === 0x103) {
             permissionTid = newTid(), connectTid = newTid();
-            [pm, cm] = await Promise.all([
-                sign(stunMsg(0x008, permissionTid, [peer, ...aa])),
-                sign(stunMsg(0x00A, connectTid, [peer, ...aa]))
-            ]);
+            [pm, cm] = await Promise.all([sign(stunMsg(0x008, permissionTid, [peer, ...aa])), sign(stunMsg(0x00A, connectTid, [peer, ...aa]))]);
             await cw.write(cat(pm, cm));
         } else {throw new Error()}
         if (r?.type !== 0x103) throw new Error();
         let allocTtl = readU32(r.attrs?.[0x00D]) || 600;
         r = await readControl(permissionTid);
         if (r?.type !== 0x108) throw new Error();
-        let permTtl = readU32(r.attrs?.[0x00D]) || 300;
         r = await readControl(connectTid);
         if (r?.type !== 0x10A || !r.attrs[0x02A]) throw new Error();
-        const dRes = await dataPromise;
-        const dIsCustom = dRes.isCustom;
-        const dw = dIsCustom ? {write: c => dataTls.write(c), releaseLock: () => {}} : data.writable.getWriter();
+        const dRes = await dataPromise, dIsCustom = dRes.isCustom, dw = dIsCustom ? {write: c => dataTls.write(c), releaseLock: () => {}} : data.writable.getWriter();
         const dr = dIsCustom ? {
             read: async () => {
                 const v = await dataTls.read();
@@ -1203,26 +1185,22 @@ const connectViaTurnProxy = async ({hostname, port, username, password}, {addrTy
         [r, extra] = await readMatching(dr, tid);
         if (r?.type !== 0x10B) throw new Error();
         if (!dIsCustom) dr.releaseLock(), dw.releaseLock();
-        const tlsStream = dIsCustom ? tlsStreamAdapter(dataTls) : null;
-        const readable = tlsStream ? tlsStream.readable : data.readable;
-        const writable = tlsStream ? tlsStream.writable : data.writable;
+        const tlsStream = dIsCustom ? tlsStreamAdapter(dataTls) : null, readable = tlsStream ? tlsStream.readable : data.readable, writable = tlsStream ? tlsStream.writable : data.writable;
+        let retryCount = 0;
         const renew = async () => {
             if (closed) return;
             try {
-                const refreshRes = await controlRequest(0x004, [stunAttr(0x00D, u32(allocTtl))], 0x104);
-                const newAllocTtl = readU32(refreshRes.attrs?.[0x00D]);
+                const refreshRes = await controlRequest(0x004, [stunAttr(0x00D, u32(allocTtl))], 0x104), newAllocTtl = readU32(refreshRes.attrs?.[0x00D]);
+                if (newAllocTtl === 0) throw new Error();
                 if (newAllocTtl > 0) allocTtl = newAllocTtl;
-                const permRes = await controlRequest(0x008, [peer], 0x108);
-                const newPermTtl = readU32(permRes.attrs?.[0x00D]);
-                if (newPermTtl > 0) permTtl = newPermTtl;
-                const lifetime = Math.max(1, Math.min(allocTtl || 600, permTtl || 300));
-                if (!closed) refreshTimer = setTimeout(renew, Math.min(300000, Math.max(1000, Math.floor(lifetime * 500))));
+                retryCount = 0;
+                if (!closed) refreshTimer = setTimeout(renew, Math.min(300000, Math.max(5000, Math.floor(allocTtl * 500))));
             } catch {
-                close();
+                if (closed) return;
+                retryCount++, retryCount <= 3 ? refreshTimer = setTimeout(renew, retryCount * 2000) : close();
             }
         };
-        const lifetime = Math.max(1, Math.min(allocTtl, permTtl));
-        if (!closed) refreshTimer = setTimeout(renew, Math.min(300000, Math.max(1000, Math.floor(lifetime * 500))));
+        if (!closed) refreshTimer = setTimeout(renew, Math.min(300000, Math.max(5000, Math.floor(allocTtl * 500))));
         return {readable, writable, close, extra};
     } catch {
         close();
