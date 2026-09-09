@@ -1634,7 +1634,10 @@ const handleWebSocketConn = async (webSocket, request) => {
     const earlyData = earlyDataHeader ? Uint8Array.fromBase64(earlyDataHeader, {alphabet: "base64url"}) : null;
     const state = {socks5State: 0, tcpWriter: null, tcpSocket: null, ssInbound: null, ssOutbound: null, ssResponseSalt: null};
     let processingQueue = null;
-    const close = () => {webSocket?.close(1011, 'WebSocket is closed')};
+    const close = () => {
+        try {state.tcpSocket?.close()} catch {}
+        try {webSocket.close(1011, 'WebSocket is closed')} catch {}
+    };
     const process = (chunk) => {
         if (state.tcpWriter) return state.tcpWriter(chunk);
         return handleSession(earlyData ? chunk : new Uint8Array(chunk), state, request, webSocket, close, earlyData !== null);
@@ -1656,6 +1659,7 @@ const handleXwebPost = async (request) => {
         cleaned = true;
         !ac.signal.aborted && ac.abort(reason);
         if (state.xwebPipeTo) try {responseWriter.abort(reason).catch(() => {})} catch {}
+        try {state.tcpSocket?.close()} catch {}
     };
     const writable = {send(chunk) {if (chunk?.byteLength) return responseWriter.write(chunk)}};
     (async () => {
