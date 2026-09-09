@@ -1024,10 +1024,11 @@ const connectViaTurnProxy = async ({hostname, port, username, password}, {addrTy
             .catch(() => null);
     } else if (addrType === 4) {return null}
     let ctrl = null, data = null, dataPromise = null, ctrlTls = null, dataTls = null;
-    let cw = null, cr = null, ctrlExtra = null, closed = false;
+    let cw = null, cr = null, ctrlExtra = null, closed = false, refreshTimer = null;
     const proxyIsIp = addrTypeIs(hostname) !== 3;
     const close = () => {
         closed = true;
+        if (refreshTimer !== null) clearTimeout(refreshTimer), refreshTimer = null;
         [ctrl, data, ctrlTls, dataTls].forEach(s => {try {s?.close()} catch {}});
         [cr, cw].forEach(lock => {try {lock?.releaseLock()} catch {}});
     };
@@ -1093,8 +1094,36 @@ const connectViaTurnProxy = async ({hostname, port, username, password}, {addrTy
         ctrlExtra = extra;
         return msg;
     };
-    let cryptoKey = null, aa = [];
+    const u32 = value => new Uint8Array([(value >>> 24) & 255, (value >>> 16) & 255, (value >>> 8) & 255, value & 255]);
+    const readU32 = value => value?.length >= 4 ? value[0] * 0x1000000 + value[1] * 0x10000 + value[2] * 0x100 + value[3] : 0;
+    let cryptoKey = null, aa = [], authRealm = '';
     const sign = m => cryptoKey ? addIntegrity(m, cryptoKey) : m;
+    const updateAuth = async response => {
+        const nonce = response?.attrs?.[0x015]?.slice();
+        if (!username || !nonce?.length) return false;
+        const realm = response.attrs?.[0x014]?.length ? textDecoder.decode(response.attrs[0x014]) : authRealm;
+        if (!realm) return false;
+        if (realm !== authRealm || !cryptoKey) {
+            const keyBytes = await md5(`${username}:${realm}:${password}`);
+            cryptoKey = await crypto.subtle.importKey('raw', keyBytes, {name: 'HMAC', hash: 'SHA-1'}, false, ['sign']);
+        }
+        authRealm = realm;
+        aa = [stunAttr(0x006, textEncoder.encode(username)), stunAttr(0x014, textEncoder.encode(authRealm)), stunAttr(0x015, nonce)];
+        return true;
+    };
+    const controlRequest = async (type, attrs, expectedType) => {
+        for (let attempt = 0; attempt < 2; attempt++) {
+            if (closed) throw new Error();
+            const tid = newTid();
+            await cw.write(await sign(stunMsg(type, tid, [...attrs, ...aa])));
+            const response = await readControl(tid);
+            if (response?.type === expectedType) return response;
+            const errCode = parseErr(response?.attrs?.[0x009]);
+            if ((errCode === 401 || errCode === 438) && await updateAuth(response)) continue;
+            throw new Error();
+        }
+        throw new Error();
+    };
     try {
         const ctrlPromise = createConn();
         dataPromise = createConn().then(res => {
@@ -1131,6 +1160,7 @@ const connectViaTurnProxy = async ({hostname, port, username, password}, {addrTy
             const realm = textDecoder.decode(r.attrs[0x014] ?? []), nonce = r.attrs[0x015] ?? [];
             const keyBytes = await md5(`${username}:${realm}:${password}`);
             cryptoKey = await crypto.subtle.importKey('raw', keyBytes, {name: 'HMAC', hash: 'SHA-1'}, false, ['sign']);
+            authRealm = realm;
             aa = [stunAttr(0x006, textEncoder.encode(username)), stunAttr(0x014, textEncoder.encode(realm)), stunAttr(0x015, nonce)];
             const allocateTid = newTid();
             permissionTid = newTid(), connectTid = newTid();
@@ -1151,8 +1181,10 @@ const connectViaTurnProxy = async ({hostname, port, username, password}, {addrTy
             await cw.write(cat(pm, cm));
         } else {throw new Error()}
         if (r?.type !== 0x103) throw new Error();
+        let allocTtl = readU32(r.attrs?.[0x00D]) || 600;
         r = await readControl(permissionTid);
         if (r?.type !== 0x108) throw new Error();
+        let permTtl = readU32(r.attrs?.[0x00D]) || 300;
         r = await readControl(connectTid);
         if (r?.type !== 0x10A || !r.attrs[0x02A]) throw new Error();
         const dRes = await dataPromise;
@@ -1174,6 +1206,23 @@ const connectViaTurnProxy = async ({hostname, port, username, password}, {addrTy
         const tlsStream = dIsCustom ? tlsStreamAdapter(dataTls) : null;
         const readable = tlsStream ? tlsStream.readable : data.readable;
         const writable = tlsStream ? tlsStream.writable : data.writable;
+        const renew = async () => {
+            if (closed) return;
+            try {
+                const refreshRes = await controlRequest(0x004, [stunAttr(0x00D, u32(allocTtl))], 0x104);
+                const newAllocTtl = readU32(refreshRes.attrs?.[0x00D]);
+                if (newAllocTtl > 0) allocTtl = newAllocTtl;
+                const permRes = await controlRequest(0x008, [peer], 0x108);
+                const newPermTtl = readU32(permRes.attrs?.[0x00D]);
+                if (newPermTtl > 0) permTtl = newPermTtl;
+                const lifetime = Math.max(1, Math.min(allocTtl || 600, permTtl || 300));
+                if (!closed) refreshTimer = setTimeout(renew, Math.min(300000, Math.max(1000, Math.floor(lifetime * 500))));
+            } catch {
+                close();
+            }
+        };
+        const lifetime = Math.max(1, Math.min(allocTtl, permTtl));
+        if (!closed) refreshTimer = setTimeout(renew, Math.min(300000, Math.max(1000, Math.floor(lifetime * 500))));
         return {readable, writable, close, extra};
     } catch {
         close();
@@ -1633,7 +1682,7 @@ const handleXwebPost = async (request) => {
     const writable = {send(chunk) {if (chunk?.byteLength) return responseWriter.write(chunk)}};
     (async () => {
         let bufferView = new Uint8Array(32768), spareBuffer = new ArrayBuffer(8192), used = 0, uploaded = 0, timerId = null, done, value;
-        const flushBuffer = () => {
+        const flush = () => {
             if (used > 0 && state.tcpWriter && bufferView) (state.tcpWriter(bufferView.subarray(0, used)), used = 0);
             timerId && (clearTimeout(timerId), timerId = null);
         };
@@ -1653,13 +1702,13 @@ const handleXwebPost = async (request) => {
                 if (state.tcpWriter) {
                     uploaded++;
                     if (uploaded >= 8000) {
-                        flushBuffer();
+                        flush();
                         await state.rawTcpWriter.ready;
                         reader.releaseLock(), state.rawTcpWriter.releaseLock(), state.xwebPipeTo = false, bufferView = null, spareBuffer = null;
                         request.body.pipeThrough(upBridge, {signal: ac.signal}).pipeTo(state.tcpSocket.writable, {signal: ac.signal}).catch(cleanup);
                         break;
                     }
-                    used > 24576 ? flushBuffer() : (timerId ||= setTimeout(flushBuffer, 2));
+                    used > 24576 ? flush() : (timerId && clearTimeout(timerId), timerId = setTimeout(flush, 2));
                 } else {
                     state.needMore = false;
                     await handleSession(bufferView.subarray(0, used), state, request, writable, cleanup);
@@ -1675,7 +1724,7 @@ const handleXwebPost = async (request) => {
             try {await reader?.cancel(e)} catch {}
             cleanup(e);
         } finally {
-            flushBuffer(), bufferView = null, spareBuffer = null;
+            flush(), bufferView = null, spareBuffer = null;
             if (state.xwebPipeTo && !state.tcpSocket) cleanup();
         }
     })().catch(cleanup);
