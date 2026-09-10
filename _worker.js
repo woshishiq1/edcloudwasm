@@ -1650,7 +1650,7 @@ const handleXwebPost = async (request) => {
     if (!reader) return new Response(null, {status: 400});
     const state = {socks5State: 0, tcpWriter: null, tcpSocket: null, needMore: false, allowNeedMore: true, disableSsAead: true, xwebPipeTo: true};
     const bridge = new IdentityTransformStream({highWaterMark: 1024 * 1024}), upBridge = new IdentityTransformStream({highWaterMark: 1024 * 1024 * 1024}), responseWriter = bridge.writable.getWriter();
-    const close = () => {if (state.xwebPipeTo) responseWriter.close().catch(() => {})};
+    const close = () => {if (state.xwebPipeTo) state.xwebPipeTo = false, reader.cancel().catch(() => {}), responseWriter.close().catch(() => {})};
     const writable = {send(chunk) {if (chunk?.byteLength) return responseWriter.write(chunk)}};
     (async () => {
         let bufferView = new Uint8Array(32768), spareBuffer = new ArrayBuffer(8192), used = 0, uploaded = 0, timerId = null, done, value;
@@ -1690,11 +1690,7 @@ const handleXwebPost = async (request) => {
                     if (!state.needMore) used = 0;
                 }
             }
-        } catch {
-            used = 0;
-            try {await reader.cancel()} catch {}
-            close();
-        } finally {flush()}
+        } catch {used = 0, close()} finally {flush()}
     })().catch(close);
     return new Response(bridge.readable, {headers: xwebHeaders});
 };
