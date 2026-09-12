@@ -482,300 +482,214 @@ const connectViaSocksProxy = async (targetAddrType, targetPortNum, socksAuth, ad
     return socksSocket;
 };
 const {TlsClient} = (() => {
-    const e = 769, t = 771, n = 772, r = 20, i = 21, s = 22, a = 23, h = 1, c = 2, o = 4, l = 8, f = 11, u = 12, y = 13, p = 14, w = 15, d = 16, g = 20, v = 0, A = 10, S = 11, m = 13, C = 43, H = 45, T = 51, E = 0, L = new TextEncoder, P = new Uint8Array(0),
-        U = new Map([[4865, {id: 4865, keyLen: 16, ivLen: 12, hash: "SHA-256", tls13: !0}], [4866, {id: 4866, keyLen: 32, ivLen: 12, hash: "SHA-384", tls13: !0}], [49199, {id: 49199, keyLen: 16, ivLen: 4, hash: "SHA-256", kex: "ECDHE"}], [49200, {id: 49200, keyLen: 32, ivLen: 4, hash: "SHA-384", kex: "ECDHE"}], [49195, {id: 49195, keyLen: 16, ivLen: 4, hash: "SHA-256", kex: "ECDHE"}], [49196, {id: 49196, keyLen: 32, ivLen: 4, hash: "SHA-384", kex: "ECDHE"}]]),
-        I = new Map([[29, "X25519"], [23, "P-256"]]), x = [2052, 2053, 2054, 2055, 2056, 2057, 2058, 2059, 1027, 1283, 1539, 1025, 1281, 1537, 513, 515];
-    const _ = (...e) => {
-        const calc = a => {
-            let l = 0;
-            for (const x of a) {if (x instanceof Uint8Array) l += x.length; else if (Array.isArray(x)) l += calc(x); else if (typeof x === "number") l += 1}
-            return l
+    const V = new TextEncoder, q = new Uint8Array, p = (...e) => {
+            const t = [], i = h => h.forEach(s => s instanceof Uint8Array ? t.push(...s) : Array.isArray(s) ? i(s) : t.push(s));
+            return i(e), new Uint8Array(t)
+        }, o = e => [e >> 8, e & 255], b = (e, t) => e[t] << 8 | e[t + 1], y = (...e) => {
+            const t = new Uint8Array(e.reduce((h, s) => h + (s?.length || 0), 0));
+            let i = 0;
+            for (const h of e) h?.length && (t.set(h, i), i += h.length);
+            return t
+        }, G = e => e === "SHA-384" ? 48 : 32, K = e => e?.[0] === 1 && e[1] === 112, M = async (e, t, i) => new Uint8Array(await crypto.subtle.sign("HMAC", t.type ? t : await crypto.subtle.importKey("raw", t, {name: "HMAC", hash: e}, !1, ["sign"]), i)), C = async (e, t) => new Uint8Array(await crypto.subtle.digest(e, t)), R = (e, t) => crypto.subtle.importKey("raw", e, {name: "AES-GCM"}, !1, [t]),
+        j = async (e, t, i, h) => new Uint8Array(await crypto.subtle.encrypt({name: "AES-GCM", iv: t, additionalData: h}, e, i)), N = async (e, t, i, h) => new Uint8Array(await crypto.subtle.decrypt({name: "AES-GCM", iv: t, additionalData: h}, e, i)), v = (e, t, i = 771) => {
+            const h = new Uint8Array(5 + t.length);
+            return h.set([e, i >> 8, i, t.length >> 8, t.length]), h.set(t, 5), h
+        }, L = (e, t) => {
+            const i = new Uint8Array(4 + t.length), h = t.length;
+            return i.set([e, h >> 16, h >> 8, h]), i.set(t, 4), i
         };
-        const res = new Uint8Array(calc(e));
-        let off = 0;
-        const fill = a => {for (const x of a) {if (x instanceof Uint8Array) {res.set(x, off), off += x.length} else if (Array.isArray(x)) {fill(x)} else if (typeof x === "number") {res[off++] = x}}};
-        fill(e);
-        return res
+    async function W(e, t, i, h, s = "SHA-256") {
+        const n = y(V.encode(t), i), a = e.type ? e : await crypto.subtle.importKey("raw", e, {name: "HMAC", hash: s}, !1, ["sign"]);
+        let c = new Uint8Array(0), r = n;
+        for (; c.length < h;) r = await M(s, a, r), c = y(c, await M(s, a, y(r, n)));
+        return c.slice(0, h)
+    }
+    const F = (e, t, i) => M(e, t?.length ? t : new Uint8Array(G(e)), i);
+    async function U(e, t, i, h, s) {
+        const n = typeof i == "string" ? V.encode("tls13 " + i) : i, a = G(e), c = p(o(s), n.length, n, h.length, h), r = t.type ? t : await crypto.subtle.importKey("raw", t, {name: "HMAC", hash: e}, !1, ["sign"]);
+        let w = new Uint8Array(0), u = new Uint8Array(0);
+        for (let g = 1; g <= Math.ceil(s / a); g++) u = await M(e, r, y(u, c, [g])), w = y(w, u);
+        return w.slice(0, s)
+    }
+    const J = async (e = "P-256") => {
+        const t = e === "X25519", i = await crypto.subtle.generateKey(t ? {name: e} : {name: "ECDH", namedCurve: e}, !0, ["deriveBits"]);
+        return {kp: i, pk: new Uint8Array(await crypto.subtle.exportKey("raw", i.publicKey))}
+    }, Q = async (e, t, i = "P-256") => {
+        const h = i === "X25519", s = await crypto.subtle.importKey("raw", t, h ? {name: i} : {name: "ECDH", namedCurve: i}, !1, []);
+        return new Uint8Array(await crypto.subtle.deriveBits({name: h ? i : "ECDH", public: s}, e, 256))
     };
-    const B = e => [e >> 8 & 255, 255 & e], R = (e, t) => e[t] << 8 | e[t + 1], M = (e, t) => e[t] << 16 | e[t + 1] << 8 | e[t + 2], W = (...e) => {
-        const t = e.filter(e => e && e.length > 0), n = t.reduce((e, t) => e + t.length, 0), r = new Uint8Array(n);
-        let i = 0;
-        for (const e of t) r.set(e, i), i += e.length;
-        return r
-    }, D = e => crypto.getRandomValues(new Uint8Array(e)), q = e => "SHA-384" === e ? 48 : 32;
-    const LB = {key: L.encode("tls13 key"), iv: L.encode("tls13 iv"), derived: L.encode("tls13 derived"), finished: L.encode("tls13 finished"), chs: L.encode("tls13 c hs traffic"), shs: L.encode("tls13 s hs traffic"), cap: L.encode("tls13 c ap traffic"), sap: L.encode("tls13 s ap traffic")};
-    async function $(e, t, n) {
-        const r = t.type === "secret" ? t : await crypto.subtle.importKey("raw", t, {name: "HMAC", hash: e}, !1, ["sign"]);
-        return new Uint8Array(await crypto.subtle.sign("HMAC", r, n))
-    }
-    async function G(e, t) {return new Uint8Array(await crypto.subtle.digest(e, t))}
-    async function V(e, t, n, r, i = "SHA-256") {
-        const s = W(L.encode(t), n);
-        let a = new Uint8Array(0), h = s;
-        const k = e.type === "secret" ? e : await crypto.subtle.importKey("raw", e, {name: "HMAC", hash: i}, !1, ["sign"]);
-        for (; a.length < r;) {
-            h = await $(i, k, h);
-            const t = await $(i, k, W(h, s));
-            a = W(a, t)
-        }
-        return a.slice(0, r)
-    }
-    async function X(e, t, n) {return t && t.length || (t = new Uint8Array(q(e))), $(e, t, n)}
-    async function O(e, t, n, r, i) {
-        const s = typeof n === "string" ? LB[n] || L.encode("tls13 " + n) : n, hl = q(e), blocks = Math.ceil(i / hl), info = _(B(i), s.length, s, r.length, r);
-        let a = new Uint8Array(0), h = new Uint8Array(0);
-        const k = t.type === "secret" ? t : await crypto.subtle.importKey("raw", t, {name: "HMAC", hash: e}, !1, ["sign"]);
-        for (let j = 1; j <= blocks; j++) h = await $(e, k, W(h, info, [j])), a = W(a, h);
-        return a.slice(0, i)
-    }
-    async function F(e = "P-256") {
-        if ("X25519" === e) {
-            const e = await crypto.subtle.generateKey({name: "X25519"}, !0, ["deriveBits"]);
-            return {kp: e, pk: new Uint8Array(await crypto.subtle.exportKey("raw", e.publicKey))}
-        }
-        const t = await crypto.subtle.generateKey({name: "ECDH", namedCurve: e}, !0, ["deriveBits"]);
-        return {kp: t, pk: new Uint8Array(await crypto.subtle.exportKey("raw", t.publicKey))}
-    }
-    async function Y(e, t, n = "P-256") {
-        if ("X25519" === n) {
-            const n = await crypto.subtle.importKey("raw", t, {name: "X25519"}, !1, []);
-            return new Uint8Array(await crypto.subtle.deriveBits({name: "X25519", public: n}, e, 256))
-        }
-        const r = await crypto.subtle.importKey("raw", t, {name: "ECDH", namedCurve: n}, !1, []);
-        return new Uint8Array(await crypto.subtle.deriveBits({name: "ECDH", public: r}, e, 256))
-    }
-    async function J(e, t) {return crypto.subtle.importKey("raw", e, {name: "AES-GCM"}, !1, [t])}
-    async function j(e, t, n, r) {return new Uint8Array(await crypto.subtle.encrypt({name: "AES-GCM", iv: t, additionalData: r, tagLength: 128}, e, n))}
-    async function z(e, t, n, r) {return new Uint8Array(await crypto.subtle.decrypt({name: "AES-GCM", iv: t, additionalData: r, tagLength: 128}, e, n))}
-    function ie(e, n, r = t) {
-        const out = new Uint8Array(5 + n.length);
-        out[0] = e, out[1] = r >> 8, out[2] = 255 & r, out[3] = n.length >> 8, out[4] = 255 & n.length, out.set(n, 5);
-        return out
-    }
-    function se(e, t) {
-        const out = new Uint8Array(4 + t.length);
-        out[0] = e, out[1] = t.length >> 16 & 255, out[2] = t.length >> 8 & 255, out[3] = 255 & t.length, out.set(t, 4);
-        return out
-    }
-    class ae {
-        constructor() {this.b = new Uint8Array(32768), this.h = 0, this.t = 0}
-        feed(e) {
-            if (this.t + e.length > this.b.length) {
-                if (this.t - this.h + e.length > this.b.length) {
-                    const nb = new Uint8Array(Math.max(this.b.length * 2, this.t - this.h + e.length));
-                    nb.set(this.b.subarray(this.h, this.t), 0), this.b = nb
-                } else {this.b.copyWithin(0, this.h, this.t)}
-                this.t -= this.h, this.h = 0
+    class Z {
+        constructor(t) {this.b = new Uint8Array(t), this.h = this.t = 0}
+        feed(t) {
+            if (this.t + t.length > this.b.length) {
+                const i = this.t - this.h, h = i + t.length > this.b.length, s = h ? new Uint8Array(Math.max(this.b.length * 2, i + t.length)) : this.b;
+                h ? s.set(this.b.subarray(this.h, this.t)) : s.copyWithin(0, this.h, this.t), this.b = s, this.t = i, this.h = 0
             }
-            this.b.set(e, this.t), this.t += e.length
+            this.b.set(t, this.t), this.t += t.length
         }
+    }
+    class O extends Z {
+        constructor() {super(32768)}
         next() {
             if (this.t - this.h < 5) return null;
-            const e = this.b[this.h], t = R(this.b, this.h + 1), n = R(this.b, this.h + 3);
-            if (n > 18432) throw new Error;
-            if (this.t - this.h < 5 + n) return null;
-            const r = this.b.subarray(this.h + 5, this.h + 5 + n);
-            this.h += 5 + n;
-            if (this.h === this.t) this.h = this.t = 0;
-            return {type: e, version: t, length: n, fragment: r}
+            const t = this.b[this.h], i = b(this.b, this.h + 1), h = b(this.b, this.h + 3);
+            if (h > 18432) throw new Error;
+            if (this.t - this.h < 5 + h) return null;
+            const s = this.b.subarray(this.h + 5, this.h += 5 + h);
+            return this.h === this.t && (this.h = this.t = 0), {type: t, version: i, length: h, fragment: s}
         }
     }
-    class he {
-        constructor() {this.b = new Uint8Array(4096), this.h = 0, this.t = 0}
-        feed(e) {
-            if (this.t + e.length > this.b.length) {
-                if (this.t - this.h + e.length > this.b.length) {
-                    const nb = new Uint8Array(Math.max(this.b.length * 2, this.t - this.h + e.length));
-                    nb.set(this.b.subarray(this.h, this.t), 0), this.b = nb
-                } else {this.b.copyWithin(0, this.h, this.t)}
-                this.t -= this.h, this.h = 0
-            }
-            this.b.set(e, this.t), this.t += e.length
-        }
+    class Y extends Z {
+        constructor() {super(4096)}
         next() {
             if (this.t - this.h < 4) return null;
-            const e = this.b[this.h], t = M(this.b, this.h + 1);
-            if (this.t - this.h < 4 + t) return null;
-            const n = this.b.subarray(this.h + 4, this.h + 4 + t), r = this.b.subarray(this.h, this.h + 4 + t);
-            this.h += 4 + t;
-            if (this.h === this.t) this.h = this.t = 0;
-            return {type: e, length: t, body: n, raw: r}
+            const t = this.b[this.h], i = this.b[this.h + 1] << 16 | b(this.b, this.h + 2);
+            if (this.t - this.h < 4 + i) return null;
+            const h = this.b.subarray(this.h + 4, this.h + 4 + i), s = this.b.subarray(this.h, this.h += 4 + i);
+            return this.h === this.t && (this.h = this.t = 0), {type: t, length: i, body: h, raw: s}
         }
     }
-    const Z0 = e => e && 1 === e[0] && 112 === e[1];
-    function ue(e, n, r, {sessionId: id = P} = {}) {
-        const c = [4865, 4866, 49199, 49200, 49195, 49196], o = _(...c.flatMap(B)), l = [_(255, 1, 0, 1, 0)];
-        if (n) {
-            const e = L.encode(n), t = _(0, B(e.length), e);
-            l.push(_(B(v), B(t.length + 2), B(t.length), t))
+    function tt(e, t, i, {sessionId: h = q} = {}) {
+        const s = p(...[4865, 4866, 49199, 49200, 49195, 49196].flatMap(o)), n = [p(255, 1, 0, 1, 0)];
+        if (t) {
+            const r = V.encode(t);
+            n.push(p(0, 0, o(r.length + 5), o(r.length + 3), 0, o(r.length), r))
         }
-        l.push(_(B(S), 0, 2, 1, 0));
-        const gb = _(0, 29, 0, 23);
-        l.push(_(B(A), B(gb.length + 2), B(gb.length), gb));
-        const f = _(...x.flatMap(B));
-        l.push(_(B(m), B(f.length + 2), B(f.length), f)), l.push(_(B(C), 0, 5, 4, 3, 4, 3, 3)), l.push(_(B(H), 0, 2, 1, 1));
-        const ks = W(_(0, 29, B(r.x25519.length), r.x25519), _(0, 23, B(r.p256.length), r.p256));
-        l.push(_(B(T), B(ks.length + 2), B(ks.length), ks));
-        const y = W(...l);
-        return se(h, _(B(t), e, id.length, id, B(o.length), o, 1, 0, B(y.length), y))
+        const a = y(p(0, 29, o(i.x25519.length), i.x25519), p(0, 23, o(i.p256.length), i.p256));
+        n.push(p(o(11), 0, 2, 1, 0), p(o(10), 0, 6, 0, 4, 0, 29, 0, 23), p(o(13), 0, 34, 0, 32, ...[2052, 2053, 2054, 2055, 2056, 2057, 2058, 2059, 1027, 1283, 1539, 1025, 1281, 1537, 513, 515].flatMap(o)), p(o(43), 0, 5, 4, 3, 4, 3, 3), p(o(45), 0, 2, 1, 1), p(o(51), o(a.length + 2), o(a.length), a));
+        const c = y(...n);
+        return L(1, p(o(771), e, h.length, h, o(s.length), s, 1, 0, o(c.length), c))
     }
-    const we = async (e, t, n, r, i) => {
-        const k = t.type === "secret" ? t : await crypto.subtle.importKey("raw", t, {name: "HMAC", hash: e}, !1, ["sign"]), [s, a] = await Promise.all([O(e, k, "key", P, n), O(e, k, "iv", P, r)]);
-        return [await J(s, i), a]
-    }, de = e => {
+    const S = async (e, t, i, h, s) => {
+        const n = t.type ? t : await crypto.subtle.importKey("raw", t, {name: "HMAC", hash: e}, !1, ["sign"]), [a, c] = await Promise.all([U(e, n, "key", q, i), U(e, n, "iv", q, h)]);
+        return [await R(a, s), c]
+    }, _ = e => {
         let t = e.length - 1;
-        for (; t >= 0 && 0 === e[t];) t--;
+        for (; t >= 0 && !e[t];) t--;
         if (t < 0) throw new Error;
         return {data: e.subarray(0, t), type: e[t]}
+    }, B = (e, t) => {
+        const i = e.slice();
+        for (let h = 0; h < 8; h++) i[i.length - 1 - h] ^= Number(t >> BigInt(h << 3) & 0xffn);
+        return i
     };
-    const mkIv = (iv, seq) => {
-        const out = iv.slice();
-        for (let i = 0; i < 8; i++) out[out.length - 1 - i] ^= Number(seq >> BigInt(8 * i) & 0xffn);
-        return out
-    };
-    class TlsClient {
-        constructor(e, t = {}) {this.sk = e, this.sn = t.serverName || "", this.cr = D(32), this.id = D(32), this.sr = null, this.hb = new Uint8Array(8192), this.hl = 0, this.hc = !1, this.cs = null, this.cc = null, this.i3 = !1, this.ms = null, this.hs = null, this.ck = null, this.wk = null, this.cv = null, this.wv = null, this.ch = null, this.sh = null, this.ci = null, this.si = null, this.ak = null, this.bk = null, this.ai = null, this.bi = null, this.cn = 0n, this.qn = 0n, this.rp = new ae, this.hp = new he, this.kp = new Map, this.pq = [], this.cl = !1, this.cg = !1, this.fl = !1, this.wq = Promise.resolve(), this.cp = null, this.rb = new Uint8Array(65536), this.rd = null, this.wr = null}
-        rh(e) {
-            if (this.hl + e.length > this.hb.length) {
-                const nb = new Uint8Array(Math.max(this.hb.length * 2, this.hl + e.length));
-                nb.set(this.hb.subarray(0, this.hl), 0);
-                this.hb = nb
+    class it {
+        constructor(t, i = {}) {this.sk = t, this.sn = i.serverName || "", this.cr = crypto.getRandomValues(new Uint8Array(32)), this.id = crypto.getRandomValues(new Uint8Array(32)), this.sr = this.ms = this.hs = this.ck = this.wk = this.cv = this.wv = this.ch = this.sh = this.ci = this.si = this.ak = this.bk = this.ai = this.bi = this.cp = this.rd = this.wr = this.cs = this.cc = null, this.hb = new Uint8Array(8192), this.hl = 0, this.hc = this.i3 = this.cl = this.cg = this.fl = !1, this.cn = this.qn = 0n, this.rp = new O, this.hp = new Y, this.kp = new Map, this.pq = [], this.wq = Promise.resolve(), this.rb = new Uint8Array(65536)}
+        rh(t) {
+            if (this.hl + t.length > this.hb.length) {
+                const i = new Uint8Array(Math.max(this.hb.length * 2, this.hl + t.length));
+                i.set(this.hb.subarray(0, this.hl)), this.hb = i
             }
-            this.hb.set(e, this.hl), this.hl += e.length
+            this.hb.set(t, this.hl), this.hl += t.length
         }
         ts() {return this.hb.subarray(0, this.hl)}
         fc() {return this.cn++}
         fs() {return this.qn++}
-        fail() {this.fl = !0, this.cl = !0, this.sk?.close()}
+        fail() {
+            this.fl = this.cl = !0;
+            try {this.rd?.cancel()} catch {}
+            try {this.rd?.releaseLock()} catch {}
+            try {this.wr?.releaseLock()} catch {}
+            try {this.sk?.close()} catch {}
+        }
         async rc() {
-            const r = await this.rd.read(this.rb);
-            if (r) {
-                if (!r.done && r.value) this.rb = new Uint8Array(r.value.buffer);
-                return r
-            }
-            throw new Error
+            const t = await this.rd.read(this.rb);
+            if (!t) throw new Error;
+            return !t.done && t.value && (this.rb = new Uint8Array(t.value.buffer)), t
         }
         async pr(t) {
             for (; ;) {
-                let r;
-                for (; r = this.rp.next();) if (await t(r)) return;
-                const {value: i, done: s} = await this.rc();
-                if (s) throw new Error;
+                for (let s; s = this.rp.next();) if (await t(s)) return;
+                const {value: i, done: h} = await this.rc();
+                if (h) throw new Error;
                 this.rp.feed(i)
             }
         }
         async handshake() {
-            const [t, n] = await Promise.all([F("P-256"), F("X25519")]);
-            this.kp = new Map([[23, t], [29, n]]), this.rd = this.sk.readable.getReader({mode: "byob"}), this.wr = this.sk.writable.getWriter();
+            const [t, i] = await Promise.all([J("P-256"), J("X25519")]);
+            this.kp = new Map([[23, t], [29, i]]), this.rd = this.sk.readable.getReader({mode: "byob"}), this.wr = this.sk.writable.getWriter();
             try {
-                const x = {p256: t.pk, x25519: n.pk}, h = ue(this.cr, this.sn, x, {sessionId: this.id});
-                this.rh(h), await this.wr.write(ie(s, h, e));
-                let o = await this.rsh();
-                if (o.isTls13) {
-                    const _n = o, _h = I.get(_n.ks?.group);
-                    if (!_h || !_n.ks?.key?.length) throw new Error;
-                    const _ep = this.kp.get(_n.ks.group);
-                    if (!_ep) throw new Error;
-                    const _c = this.cc.hash, _o2 = q(_c), _u = this.cc.keyLen, _p = this.cc.ivLen, _d = await Y(_ep.kp.privateKey, _n.ks.key, _h), _k = await X(_c, null, new Uint8Array(_o2)), _v = await O(_c, _k, "derived", await G(_c, P), _o2);
-                    this.hs = await X(_c, _v, _d);
-                    const _A = await G(_c, this.ts()), _S = await O(_c, this.hs, "chs", _A, _o2), _m = await O(_c, this.hs, "shs", _A, _o2);
-                    [this.ch, this.ci] = await we(_c, _S, _u, _p, "encrypt"), [this.sh, this.si] = await we(_c, _m, _u, _p, "decrypt");
-                    let _C = !1, _rq = !1;
-                    const _H = async e => {
-                        this.rh(e.raw);
-                        if (e.type === y) _rq = !0; else if (e.type === g) _C = !0
-                    };
-                    await this.pr(async e => {
-                        if (e.type === r || e.type === s) return;
-                        if (e.type === i) {
-                            if (Z0(e.fragment)) return;
+                const h = {p256: t.pk, x25519: i.pk}, s = tt(this.cr, this.sn, h, {sessionId: this.id});
+                this.rh(s), await this.wr.write(v(22, s, 769));
+                const n = await this.rsh();
+                if (n.isTls13) {
+                    const a = n.ks?.group === 29 ? "X25519" : n.ks?.group === 23 ? "P-256" : null, c = this.kp.get(n.ks?.group);
+                    if (!a || !n.ks?.key?.length || !c) throw new Error;
+                    const r = this.cc.hash, w = G(r), {keyLen: u, ivLen: g} = this.cc, A = await Q(c.kp.privateKey, n.ks.key, a), P = await U(r, await F(r, null, new Uint8Array(w)), "derived", await C(r, q), w);
+                    this.hs = await F(r, P, A);
+                    const f = await C(r, this.ts()), k = await U(r, this.hs, "c hs traffic", f, w), d = await U(r, this.hs, "s hs traffic", f, w);
+                    [this.ch, this.ci] = await S(r, k, u, g, "encrypt"), [this.sh, this.si] = await S(r, d, u, g, "decrypt");
+                    let E = !1, m = !1;
+                    await this.pr(async H => {
+                        if (H.type === 20 || H.type === 22) return;
+                        if (H.type === 21) {
+                            if (K(H.fragment)) return;
                             throw new Error
                         }
-                        if (e.type !== a) return;
-                        const d13h_t = mkIv(this.si, this.fs()), d13h_n = new Uint8Array([a, 3, 3, e.fragment.length >> 8, 255 & e.fragment.length]), d13h_r = await z(this.sh, d13h_t, e.fragment, d13h_n), {data: _t5, type: _n5} = de(d13h_r);
-                        if (_n5 === s) {
-                            this.hp.feed(_t5);
-                            for (let _e3; _e3 = this.hp.next();) if (await _H(_e3), _C) return 1
+                        if (H.type !== 23) return;
+                        const st = await N(this.sh, B(this.si, this.fs()), H.fragment, new Uint8Array([23, 3, 3, ...o(H.fragment.length)])), {data: ht, type: et} = _(st);
+                        if (et === 22) {
+                            this.hp.feed(ht);
+                            for (let X; X = this.hp.next();) if (this.rh(X.raw), X.type === 13) m = !0; else if (X.type === 20) return E = !0, 1
                         }
                     });
-                    const _T = await G(_c, this.ts()), _E = await O(_c, this.hs, "derived", await G(_c, P), _o2), _L = await X(_c, _E, new Uint8Array(_o2)), _K = await O(_c, _L, "cap", _T, _o2), _U = await O(_c, _L, "sap", _T, _o2);
-                    [this.ak, this.ai] = await we(_c, _K, _u, _p, "encrypt"), [this.bk, this.bi] = await we(_c, _U, _u, _p, "decrypt");
-                    let _ct = P;
-                    if (_rq) _ct = se(f, _(0, 0, 0, 0)), this.rh(_ct);
-                    const _x2 = await O(_c, _S, "finished", P, _o2), __2 = await $(_c, _x2, await G(_c, this.ts())), _B2 = se(g, __2);
-                    this.rh(_B2);
-                    const e13h_arg = W(_ct, _B2, [s]), e13h_t = mkIv(this.ci, this.fc()), e13h_n = new Uint8Array([a, 3, 3, e13h_arg.length + 16 >> 8, 255 & e13h_arg.length + 16]);
-                    await this.wr.write(ie(a, await j(this.ch, e13h_t, e13h_arg, e13h_n))), this.cn = 0n, this.qn = 0n
+                    const x = await C(r, this.ts()), T = await U(r, this.hs, "derived", await C(r, q), w), D = await F(r, T, new Uint8Array(w));
+                    [this.ak, this.ai] = await S(r, await U(r, D, "c ap traffic", x, w), u, g, "encrypt"), [this.bk, this.bi] = await S(r, await U(r, D, "s ap traffic", x, w), u, g, "decrypt");
+                    let l = q;
+                    m && (l = L(11, [0, 0, 0, 0]), this.rh(l));
+                    const I = await U(r, k, "finished", q, w), $ = L(20, await M(r, I, await C(r, this.ts())));
+                    this.rh($);
+                    const z = y(l, $, [22]);
+                    await this.wr.write(v(23, await j(this.ch, B(this.ci, this.fc()), z, new Uint8Array([23, 3, 3, ...o(z.length + 16)])))), this.cn = this.qn = 0n
                 } else {
-                    let _n = null, _a2 = !1, _rq = !1;
-                    const _t = async e => {
-                        switch (e.type) {
-                            case f:
-                                this.rh(e.raw);
-                                break;
-                            case u: {
-                                this.rh(e.raw);
-                                let _t2 = 1;
-                                const _n2 = R(e.body, _t2);
-                                _t2 += 2;
-                                const _r2 = e.body[_t2++];
-                                _n = {nc: _n2, spk: e.body.subarray(_t2, _t2 + _r2)};
-                                break
-                            }
-                            case p:
-                                return this.rh(e.raw), _a2 = !0, 1;
-                            case y:
-                                this.rh(e.raw), _rq = !0;
-                                break;
-                            default:
-                                this.rh(e.raw)
+                    let a = null, c = !1, r = !1;
+                    const w = async l => {
+                        if (this.rh(l.raw), l.type === 12) {
+                            a = {nc: b(l.body, 1), spk: l.body.subarray(4, 4 + l.body[3])};
+                        } else {
+                            if (l.type === 14) return c = !0, 1;
+                            l.type === 13 && (r = !0)
                         }
                     };
-                    let _ph_done = false;
-                    for (let _e; _e = this.hp.next();) if (await _t(_e)) {
-                        _ph_done = true;
+                    let u = !1;
+                    for (let l; l = this.hp.next();) if (await w(l)) {
+                        u = !0;
                         break
                     }
-                    if (!_ph_done) {
-                        await this.pr(async _e => {
-                            if (_e.type === i) {
-                                if (Z0(_e.fragment)) return;
-                                throw new Error
-                            }
-                            if (_e.type === s) {
-                                this.hp.feed(_e.fragment);
-                                for (let _e2; _e2 = this.hp.next();) if (await _t(_e2)) return 1
-                            }
-                        })
-                    }
-                    if (!_a2) throw new Error;
-                    if (!_n) throw new Error;
-                    const _h = I.get(_n.nc);
-                    if (!_h) throw new Error;
-                    const _c = this.kp.get(_n.nc);
-                    if (!_c) throw new Error;
-                    if (_rq) {
-                        const ec = se(f, _(0, 0, 0));
-                        this.rh(ec), await this.wr.write(ie(s, ec))
-                    }
-                    const _o2 = await Y(_c.kp.privateKey, _n.spk, _h), _l = se(d, _(_c.pk.length, _c.pk));
-                    this.rh(_l);
-                    const _w = this.cc.hash;
-                    this.ms = await V(_o2, "master secret", W(this.cr, this.sr), 48, _w);
-                    const _k = this.cc.keyLen, _v = this.cc.ivLen, _A = await V(this.ms, "key expansion", W(this.sr, this.cr), 2 * _k + 2 * _v, _w);
-                    [this.ck, this.wk] = await Promise.all([J(_A.subarray(0, _k), "encrypt"), J(_A.subarray(_k, 2 * _k), "decrypt")]), this.cv = _A.subarray(2 * _k, 2 * _k + _v), this.wv = _A.subarray(2 * _k + _v, 2 * _k + 2 * _v), await this.wr.write(ie(s, _l)), await this.wr.write(ie(r, _(1)));
-                    const _S = await V(this.ms, "client finished", await G(_w, this.ts()), 12, _w), _m = se(g, _S);
-                    this.rh(_m), await this.wr.write(ie(s, await this.e12(_m, s)));
-                    let _b = !1;
-                    await this.pr(async e => {
-                        if (e.type === i) {
-                            if (Z0(e.fragment)) return;
+                    if (u || await this.pr(async l => {
+                        if (l.type === 21) {
+                            if (K(l.fragment)) return;
                             throw new Error
                         }
-                        if (e.type === r) return void (_b = !0);
-                        if (e.type !== s || !_b) return;
-                        const _t3 = await this.d12(e.fragment, s);
-                        if (_t3[0] === g) return 1
+                        if (l.type === 22) {
+                            this.hp.feed(l.fragment);
+                            for (let I; I = this.hp.next();) if (await w(I)) return 1
+                        }
+                    }), !c || !a) {
+                        throw new Error;
+                    }
+                    const g = a.nc === 29 ? "X25519" : a.nc === 23 ? "P-256" : null, A = this.kp.get(a.nc);
+                    if (!g || !A) throw new Error;
+                    if (r) {
+                        const l = L(11, [0, 0, 0]);
+                        this.rh(l), await this.wr.write(v(22, l))
+                    }
+                    const P = await Q(A.kp.privateKey, a.spk, g), f = L(16, y([A.pk.length], A.pk));
+                    this.rh(f);
+                    const k = this.cc.hash;
+                    this.ms = await W(P, "master secret", y(this.cr, this.sr), 48, k);
+                    const {keyLen: d, ivLen: E} = this.cc, m = await W(this.ms, "key expansion", y(this.sr, this.cr), 2 * d + 2 * E, k);
+                    [this.ck, this.wk] = await Promise.all([R(m.subarray(0, d), "encrypt"), R(m.subarray(d, 2 * d), "decrypt")]), this.cv = m.subarray(2 * d, 2 * d + E), this.wv = m.subarray(2 * d + E, 2 * d + 2 * E), await this.wr.write(v(22, f)), await this.wr.write(v(20, [1]));
+                    const x = await W(this.ms, "client finished", await C(k, this.ts()), 12, k), T = L(20, x);
+                    this.rh(T), await this.wr.write(v(22, await this.e12(T, 22)));
+                    let D = !1;
+                    await this.pr(async l => {
+                        if (l.type === 21) {
+                            if (K(l.fragment)) return;
+                            throw new Error
+                        }
+                        if (l.type === 20) return void (D = !0);
+                        if (l.type === 22 && D && (await this.d12(l.fragment, 22))[0] === 20) return 1
                     })
                 }
                 this.hc = !0, this.cr = this.id = this.sr = this.ms = this.hs = this.ch = this.sh = this.ci = this.si = null, this.kp.clear(), this.kp = null
@@ -788,236 +702,158 @@ const {TlsClient} = (() => {
         }
         async rsh() {
             for (; ;) {
-                const {value: t, done: n} = await this.rc();
-                if (n) throw new Error;
-                let r;
-                for (this.rp.feed(t); r = this.rp.next();) {
-                    if (r.type === i) {
-                        if (Z0(r.fragment)) continue;
+                const {value: t, done: i} = await this.rc();
+                if (i) throw new Error;
+                this.rp.feed(t);
+                for (let h; h = this.rp.next();) {
+                    if (h.type === 21) {
+                        if (K(h.fragment)) continue;
                         throw new Error
                     }
-                    if (r.type !== s) continue;
-                    let e;
-                    for (this.hp.feed(r.fragment); e = this.hp.next();) {
-                        if (e.type !== c) continue;
-                        this.rh(e.raw);
-                        let _t = 0;
-                        const _r = R(e.body, _t);
-                        _t += 2;
-                        const _i = e.body.subarray(_t, _t + 32);
-                        _t += 32;
-                        const _s = e.body[_t++], _a = e.body.subarray(_t, _t + _s);
-                        _t += _s;
-                        const _h = R(e.body, _t);
-                        _t += 2;
-                        const _c = e.body[_t++];
-                        let _o = _r, _l = null;
-                        if (_t < e.body.length) {
-                            const n2 = R(e.body, _t);
-                            _t += 2;
-                            const r2 = _t + n2;
-                            for (; _t + 4 <= r2;) {
-                                const n3 = R(e.body, _t);
-                                _t += 2;
-                                const r3 = R(e.body, _t);
-                                _t += 2;
-                                const i2 = e.body.subarray(_t, _t + r3);
-                                if (_t += r3, n3 === C && r3 >= 2) {_o = R(i2, 0)} else if (n3 === T && r3 >= 2) {
-                                    const e2 = R(i2, 0), t2 = r3 >= 4 ? R(i2, 2) : 0;
-                                    _l = {group: e2, key: t2 ? i2.subarray(4, 4 + t2) : P}
+                    if (h.type === 22) {
+                        this.hp.feed(h.fragment);
+                        for (let s; s = this.hp.next();) {
+                            if (s.type !== 2) continue;
+                            this.rh(s.raw);
+                            let n = 2;
+                            const a = b(s.body, 0), c = s.body.slice(n, n += 32), r = s.body[n++], w = s.body.subarray(n, n += r), u = b(s.body, n);
+                            n += 2;
+                            const g = s.body[n++];
+                            let A = a, P = null;
+                            if (n < s.body.length) {
+                                const d = n + 2 + b(s.body, n);
+                                for (n += 2; n + 4 <= d;) {
+                                    const E = b(s.body, n), m = b(s.body, n + 2), x = s.body.subarray(n += 4, n += m);
+                                    E === 43 && m >= 2 ? A = b(x, 0) : E === 51 && m >= 2 && (P = {group: b(x, 0), key: m >= 4 ? x.subarray(4, 4 + b(x, 2)) : q})
                                 }
                             }
+                            const f = {version: a, sr: c, sid: w, cs: u, comp: g, sv: A, ks: P, isTls13: A === 772},
+                                k = {4865: {id: 4865, keyLen: 16, ivLen: 12, hash: "SHA-256", tls13: !0}, 4866: {id: 4866, keyLen: 32, ivLen: 12, hash: "SHA-384", tls13: !0}, 49199: {id: 49199, keyLen: 16, ivLen: 4, hash: "SHA-256", kex: "ECDHE"}, 49200: {id: 49200, keyLen: 32, ivLen: 4, hash: "SHA-384", kex: "ECDHE"}, 49195: {id: 49195, keyLen: 16, ivLen: 4, hash: "SHA-256", kex: "ECDHE"}, 49196: {id: 49196, keyLen: 32, ivLen: 4, hash: "SHA-384", kex: "ECDHE"}}[f.cs];
+                            if (!k || f.comp || f.isTls13 !== !!k.tls13 || !f.isTls13 && f.sv !== 771) throw new Error;
+                            return this.sr = f.sr, this.cs = f.cs, this.cc = k, this.i3 = f.isTls13, f
                         }
-                        const t2 = {version: _r, sr: _i, sid: _a, cs: _h, comp: _c, sv: _o, ks: _l, isTls13: _o === 772}, n4 = U.get(t2.cs) || null;
-                        if (!n4 || t2.comp || t2.isTls13 !== !!n4.tls13 || !t2.isTls13 && t2.sv !== 771) throw new Error;
-                        return this.sr = t2.sr, this.cs = t2.cs, this.cc = n4, this.i3 = t2.isTls13, t2
                     }
                 }
             }
         }
-        async e12(e, n, r = this.fc()) {
-            const exp = new Uint8Array(8);
-            new DataView(exp.buffer).setBigUint64(0, r, !1);
-            const aad = new Uint8Array(13);
-            aad.set(exp, 0), aad[8] = n, aad[9] = 3, aad[10] = 3, aad[11] = e.length >> 8, aad[12] = 255 & e.length;
-            const iv = new Uint8Array(this.cv.length + 8);
-            iv.set(this.cv, 0), iv.set(exp, this.cv.length);
-            const ct = await j(this.ck, iv, e, aad), out = new Uint8Array(8 + ct.length);
-            out.set(exp, 0), out.set(ct, 8);
-            return out
+        async e12(t, i, h = this.fc()) {
+            const s = new Uint8Array(8);
+            return new DataView(s.buffer).setBigUint64(0, h), y(s, await j(this.ck, y(this.cv, s), t, p(s, i, 3, 3, o(t.length))))
         }
-        async d12(e, n, r = this.fs()) {
-            const exp = new Uint8Array(8);
-            new DataView(exp.buffer).setBigUint64(0, r, !1);
-            const seqIv = e.subarray(0, 8), ct = e.subarray(8), aad = new Uint8Array(13);
-            aad.set(exp, 0), aad[8] = n, aad[9] = 3, aad[10] = 3, aad[11] = ct.length - 16 >> 8, aad[12] = 255 & ct.length - 16;
-            const iv = new Uint8Array(this.wv.length + 8);
-            iv.set(this.wv, 0), iv.set(seqIv, this.wv.length);
-            return z(this.wk, iv, ct, aad)
+        async d12(t, i, h = this.fs()) {
+            const s = new Uint8Array(8), n = t.subarray(0, 8), a = t.subarray(8);
+            return new DataView(s.buffer).setBigUint64(0, h), N(this.wk, y(this.wv, n), a, p(s, i, 3, 3, o(a.length - 16)))
         }
-        async e13(e, n = this.fc(), r = a) {
-            const t = new Uint8Array(e.length + 1);
-            t.set(e, 0), t[e.length] = r;
-            const iv = mkIv(this.ai, n), aad = new Uint8Array([a, 3, 3, t.length + 16 >> 8, 255 & t.length + 16]);
-            return j(this.ak, iv, t, aad)
+        async e13(t, i = this.fc(), h = 23) {
+            const s = new Uint8Array(t.length + 1);
+            return s.set(t), s[t.length] = h, j(this.ak, B(this.ai, i), s, new Uint8Array([23, 3, 3, ...o(s.length + 16)]))
         }
-        async d13(e, n = this.fs(), r = this.bk, i = this.bi) {
-            const iv = mkIv(i, n), aad = new Uint8Array([a, 3, 3, e.length >> 8, 255 & e.length]), c = await z(r, iv, e, aad);
-            return de(c)
-        }
-        write(e) {
+        async d13(t, i = this.fs(), h = this.bk, s = this.bi) {return _(await N(h, B(s, i), t, new Uint8Array([23, 3, 3, ...o(t.length)])))}
+        write(t) {
             if (!this.hc || this.fl || this.cg) return Promise.reject(new Error);
-            const t = this.wq.then(async () => {
+            const i = this.wq.then(async () => {
                 if (this.fl || this.cg) throw new Error;
-                if (e.length <= 16384) {await this.wr.write(ie(a, this.i3 ? await this.e13(e) : await this.e12(e, a)))} else {
-                    for (let n = 0; n < e.length;) {
-                        const r = [];
-                        for (let i = 0; i < 8 && n < e.length; i++, n += 16384) {
-                            const i2 = e.subarray(n, Math.min(n + 16384, e.length)), s2 = this.fc();
-                            r.push(this.i3 ? this.e13(i2, s2).then(e => ie(a, e)) : this.e12(i2, a, s2).then(e => ie(a, e)))
-                        }
-                        await this.wr.write(W(...await Promise.all(r)))
+                if (t.length <= 16384) return this.wr.write(v(23, this.i3 ? await this.e13(t) : await this.e12(t, 23)));
+                for (let s = 0; s < t.length;) {
+                    const n = [];
+                    for (let a = 0; a < 8 && s < t.length; a++, s += 16384) {
+                        const c = t.subarray(s, Math.min(s + 16384, t.length)), r = this.fc();
+                        n.push((this.i3 ? this.e13(c, r) : this.e12(c, 23, r)).then(w => v(23, w)))
                     }
+                    await this.wr.write(y(...await Promise.all(n)))
                 }
-            }), n = t.catch(e => {
-                this.fail();
-                throw e
-            });
-            return this.wq = n.catch(() => {}), n
+            }), h = i.catch(s => {throw this.fail(), s});
+            return this.wq = h.catch(() => {}), h
         }
         read() {
-            if (this.fl || !this.hc) return Promise.reject(new Error);
-            return (async () => {
+            return this.fl || !this.hc ? Promise.reject(new Error) : (async () => {
                 for (; ;) {
-                    if (this.pq.length) {
-                        const res = this.pq.length === 1 ? this.pq[0] : W(...this.pq);
-                        this.pq = [];
-                        return res
-                    }
+                    if (this.pq.length) return this.pq.length === 1 ? this.pq.pop() : y(...this.pq.splice(0));
                     if (this.cl) return null;
-                    const e = [];
-                    let n;
-                    for (; e.length < 8 && (n = this.rp.next());) {
-                        if (this.i3) {
-                            if (n.type === r) continue;
-                            if (n.type !== a) throw new Error
-                        } else if (n.type !== a && n.type !== i && n.type !== s) throw new Error;
-                        e.push(n)
+                    const t = [];
+                    for (let s; t.length < 8 && (s = this.rp.next());) if (!(this.i3 ? s.type === 20 : ![21, 22, 23].includes(s.type))) {
+                        if (this.i3 && s.type !== 23) throw new Error;
+                        t.push(s)
                     }
-                    if (e.length) {
-                        if (!this.i3) {
-                            const t = this.qn, n = await Promise.all(e.map((e, n) => this.d12(e.fragment, e.type, t + BigInt(n))));
-                            this.qn = t + BigInt(e.length);
-                            for (let t = 0; t < n.length; t++) {
-                                const _e = n[t], _t = e[t].type;
-                                if (_t === a) {this.pq.push(_e)} else if (_t === i) {this.pa(_e)} else if (_t === s) {
-                                    let t2;
-                                    for (this.hp.feed(_e); t2 = this.hp.next();) {}
-                                }
+                    if (t.length) {
+                        if (this.i3) {
+                            const s = this.qn, n = this.bk, a = this.bi;
+                            let c;
+                            try {c = await Promise.all(t.map((r, w) => this.d13(r.fragment, s + BigInt(w), n, a)))} catch {}
+                            if (c) {
+                                this.qn = s + BigInt(c.length);
+                                for (const r of c) this.p13(r)
+                            } else {
+                                for (let r = 0; r < t.length; r++) this.p13(await this.d13(t[r].fragment, this.qn++))
                             }
                         } else {
-                            const t = this.qn, n = this.bk, r = this.bi;
-                            let i;
-                            try {i = await Promise.all(e.map((e, i) => this.d13(e.fragment, t + BigInt(i), n, r)))} catch {i = null}
-                            if (i) {
-                                this.qn = t + BigInt(i.length);
-                                for (let n = 0; n < i.length; n++) this.p13(i[n])
-                            } else {
-                                for (let n = 0; n < e.length; n++) {
-                                    const r = await this.d13(e[n].fragment, this.qn);
-                                    this.qn++, this.p13(r)
-                                }
+                            const s = this.qn, n = await Promise.all(t.map((a, c) => this.d12(a.fragment, a.type, s + BigInt(c))));
+                            this.qn = s + BigInt(t.length);
+                            for (let a = 0; a < n.length; a++) {
+                                const c = n[a], r = t[a].type;
+                                if (r === 23) this.pq.push(c); else if (r === 21) this.pa(c); else if (r === 22) for (this.hp.feed(c); this.hp.next();) ;
                             }
                         }
-                        if (this.pq.length) {
-                            const res = this.pq.length === 1 ? this.pq[0] : W(...this.pq);
-                            this.pq = [];
-                            return res
-                        }
+                        if (this.pq.length) return this.pq.length === 1 ? this.pq.pop() : y(...this.pq.splice(0));
                         if (this.cl) return null;
                         continue
                     }
                     if (this.cl) return null;
-                    const {value: val, done: isDone} = await this.rc();
-                    if (isDone) return null;
-                    this.rp.feed(val)
+                    const {value: i, done: h} = await this.rc();
+                    if (h) return null;
+                    this.rp.feed(i)
                 }
-            })().catch(e => {
-                this.fail();
-                throw e
-            })
+            })().catch(t => {throw this.fail(), t})
         }
-        pa(e) {this.cl = !0, this.close()}
-        p13({data: e, type: t}) {if (t === a) this.pq.push(e); else if (t === i) this.pa(e)}
-        close() {
-            if (this.cp) return this.cp;
-            if (this.fl || !this.hc) {
-                this.sk?.close();
-                return this.cp = Promise.resolve()
+        pa(t) {
+            if (this.cl = !0, t && t.length >= 2) {
+                const i = t[0], h = t[1];
+                if (i === 2 || i === 1 && h !== 0) throw this.fail(), new Error
             }
-            this.cg = !0;
-            const e = this.wq.then(async () => {
-                const t = new Uint8Array([1, E]), n = this.i3 ? await this.e13(t, this.fc(), i) : await this.e12(t, i);
-                await this.wr.write(ie(this.i3 ? a : i, n))
-            });
-            return this.cp = e.catch(() => {}).finally(() => {this.cl = !0, this.sk?.close()}), this.wq = this.cp, this.cp
+            this.close()
+        }
+        p13({data: t, type: i}) {i === 23 ? this.pq.push(t) : i === 21 && this.pa(t)}
+        close() {
+            return this.cp ? this.cp : this.fl || !this.hc ? (this.sk?.close(), this.cp = Promise.resolve()) : (this.cg = !0, this.wq = this.cp = this.wq.then(async () => {
+                const t = new Uint8Array([1, 0]), i = this.i3 ? await this.e13(t, this.fc(), 21) : await this.e12(t, 21);
+                await this.wr.write(v(this.i3 ? 23 : 21, i))
+            }).catch(() => {}).finally(() => {this.cl = !0, this.sk?.close()}))
         }
     }
-    return {TlsClient: TlsClient}
+    return {TlsClient: it}
 })();
 const tlsStreamAdapter = (tls, initial = new Uint8Array(0)) => {
-    let leftOver = initial, reading = null, closed = false;
-    const readNext = async () => {
-        if (leftOver?.byteLength) {
-            const data = leftOver;
-            leftOver = null;
-            return data;
-        }
-        return await tls.read();
-    };
+    let leftOver = initial?.byteLength ? initial : null, reading = null, closed = false;
+    const readNext = async () => leftOver ? (d => (leftOver = null, d))(leftOver) : tls.read();
     const readable = new ReadableStream({
-        type: 'bytes',
-        async pull(controller) {
-            if (closed) return controller.close();
-            if (!reading) {
-                reading = readNext().finally(() => {reading = null});
-            }
-            const data = await reading;
-            if (!data?.byteLength) {
-                const request = controller.byobRequest;
+        type: 'bytes', autoAllocateChunkSize: 65536,
+        async pull(c) {
+            if (closed) return;
+            try {
+                reading ||= readNext().finally(() => reading = null);
+                const data = await reading;
+                if (!data?.byteLength) {
+                    closed = true;
+                    try { c.close() } catch {}
+                    return void c.byobRequest?.respond(0);
+                }
+                const v = data instanceof Uint8Array ? data : new Uint8Array(data), req = c.byobRequest;
+                if (req) {
+                    const l = Math.min(v.byteLength, req.view.byteLength);
+                    req.view.set(v.subarray(0, l)), leftOver = l < v.byteLength ? v.subarray(l) : null, req.respond(l);
+                } else {c.enqueue(v)}
+            } catch {
                 closed = true;
-                controller.close();
-                if (request) request.respond(0);
-                return;
-            }
-            const value = data instanceof Uint8Array ? data : new Uint8Array(data);
-            const request = controller.byobRequest;
-            if (request) {
-                const view = request.view;
-                const len = Math.min(value.byteLength, view.byteLength);
-                view.set(value.subarray(0, len));
-                if (len < value.byteLength) leftOver = value.subarray(len);
-                request.respond(len);
-            } else {
-                controller.enqueue(value);
+                try {c.close()} catch {}
+                try {tls.close()} catch {}
             }
         },
         cancel() {
             closed = true;
             try {tls.close()} catch {}
         }
-    });
-    const writable = new WritableStream({
-        write(chunk) {return tls.write(chunk)},
-        close() {
-            closed = true;
-            return tls.close()
-        },
-        abort() {
-            closed = true;
-            return tls.close()
-        }
-    });
+    }, {highWaterMark: 1048576});
+    const writable = new WritableStream({write: c => tls.write(c), close: () => (closed = true, tls.close()), abort: () => (closed = true, tls.close())});
     return {readable, writable};
 };
 const staticHeaders = `User-Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36\r\nProxy-Connection: Keep-Alive\r\nConnection: Keep-Alive\r\n\r\n`;
