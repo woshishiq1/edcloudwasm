@@ -542,7 +542,7 @@ const tlsStreamAdapter = (tls, initial = new Uint8Array(0)) => {
                 const data = await reading;
                 if (!data?.byteLength) {
                     closed = true;
-                    try { c.close() } catch {}
+                    try {c.close()} catch {}
                     return void c.byobRequest?.respond(0);
                 }
                 const v = data instanceof Uint8Array ? data : new Uint8Array(data), req = c.byobRequest;
@@ -555,10 +555,9 @@ const tlsStreamAdapter = (tls, initial = new Uint8Array(0)) => {
                 try {c.close()} catch {}
                 close();
             }
-        },
-        cancel: close
+        }, cancel: close
     }, {highWaterMark: 1048576});
-    const writable = new WritableStream({write: c => tls.write(c), close, abort: close});
+    const writable = new WritableStream({write: c => tls.write(c), close: () => {}, abort: close});
     return {readable, writable, close};
 };
 const staticHeaders = `User-Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36\r\nProxy-Connection: Keep-Alive\r\nConnection: Keep-Alive\r\n\r\n`;
