@@ -526,7 +526,12 @@ const connectViaSocksProxy = async (targetAddrType, targetPortNum, socksAuth, ad
     return socksSocket;
 };
 const tlsStreamAdapter = (tls, initial = new Uint8Array(0)) => {
-    let leftOver = initial?.byteLength ? initial : null, reading = null, closed = false;
+    let leftOver = initial?.byteLength ? initial : null, reading = null, closed = false, tlsClosed = false;
+    const close = () => {
+        if (tlsClosed) return;
+        tlsClosed = true, closed = true;
+        try {tls.close()} catch {}
+    };
     const readNext = async () => leftOver ? (d => (leftOver = null, d))(leftOver) : tls.read();
     const readable = new ReadableStream({
         type: 'bytes', autoAllocateChunkSize: 65536,
@@ -548,16 +553,13 @@ const tlsStreamAdapter = (tls, initial = new Uint8Array(0)) => {
             } catch {
                 closed = true;
                 try {c.close()} catch {}
-                try {tls.close()} catch {}
+                close();
             }
         },
-        cancel() {
-            closed = true;
-            try {tls.close()} catch {}
-        }
+        cancel: close
     }, {highWaterMark: 1048576});
-    const writable = new WritableStream({write: c => tls.write(c), close: () => (closed = true, tls.close()), abort: () => (closed = true, tls.close())});
-    return {readable, writable};
+    const writable = new WritableStream({write: c => tls.write(c), close, abort: close});
+    return {readable, writable, close};
 };
 const staticHeaders = `User-Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36\r\nProxy-Connection: Keep-Alive\r\nConnection: Keep-Alive\r\n\r\n`;
 const encodedStaticHeaders = textEncoder.encode(staticHeaders);
