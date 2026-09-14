@@ -557,7 +557,7 @@ const tlsStreamAdapter = (tls, initial = new Uint8Array(0)) => {
             }
         }, cancel: close
     }, {highWaterMark: 1048576});
-    const writable = new WritableStream({write: c => tls.write(c), close: () => {}, abort: close});
+    const writable = new WritableStream({write: c => tls.write(c), close, abort: close});
     return {readable, writable, close};
 };
 const staticHeaders = `User-Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36\r\nProxy-Connection: Keep-Alive\r\nConnection: Keep-Alive\r\n\r\n`;
