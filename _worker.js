@@ -356,7 +356,7 @@ const setDnsConnectCache = (hostname, result) => {
     }
     dnsConnectCache.set(hostname, result);
 };
-const hasV6 = dnsStrategyOrder.includes('ipv6'), hasV4 = dnsStrategyOrder.includes('ipv4'), emptyDnsRes = {records: [], expires: 0};
+const hasV6 = dnsStrategyOrder.includes('ipv6'), hasV4 = dnsStrategyOrder.includes('ipv4'), canCheckGv = dnsStrategyOrder[0] !== 'ipv6' && dnsStrategyOrder[0] !== 'hostname', emptyDnsRes = {records: [], expires: 0};
 const parseAnswer = (answer, type, wrap) => {
     if (!answer?.length) return emptyDnsRes;
     const records = [];
@@ -371,7 +371,16 @@ const parseAnswer = (answer, type, wrap) => {
     return {records, expires: now + Math.max(ttl, 180000)};
 };
 const dnsConnectResolve = async hostname => {
-    const [aaaa, a] = await Promise.all([hasV6 ? concurrentDnsResolve(hostname, 'AAAA') : null, hasV4 ? concurrentDnsResolve(hostname, 'A') : null]);
+    const l = hostname ? hostname.length : 0;
+    const onlyV6 = canCheckGv && l >= 15 &&
+        (hostname.charCodeAt(l - 1) | 32) === 109 && (hostname.charCodeAt(l - 2) | 32) === 111 && (hostname.charCodeAt(l - 3) | 32) === 99 && hostname.charCodeAt(l - 4) === 46 &&
+        (hostname.charCodeAt(l - 5) | 32) === 111 && (hostname.charCodeAt(l - 6) | 32) === 101 && (hostname.charCodeAt(l - 7) | 32) === 100 && (hostname.charCodeAt(l - 8) | 32) === 105 &&
+        (hostname.charCodeAt(l - 9) | 32) === 118 && (hostname.charCodeAt(l - 10) | 32) === 101 && (hostname.charCodeAt(l - 11) | 32) === 108 && (hostname.charCodeAt(l - 12) | 32) === 103 &&
+        (hostname.charCodeAt(l - 13) | 32) === 111 && (hostname.charCodeAt(l - 14) | 32) === 111 && (hostname.charCodeAt(l - 15) | 32) === 103 && (l === 15 || hostname.charCodeAt(l - 16) === 46);
+    const [aaaa, a] = await Promise.all([
+        (hasV6 || onlyV6) ? concurrentDnsResolve(hostname, 'AAAA') : null,
+        (hasV4 && !onlyV6) ? concurrentDnsResolve(hostname, 'A') : null
+    ]);
     const ipv6 = parseAnswer(aaaa, 28, true), ipv4 = parseAnswer(a, 1, false);
     const hasRecord = ipv6.records.length || ipv4.records.length;
     const result = {ipv6: ipv6.records, ipv4: ipv4.records, expires: hasRecord ? Math.max(ipv6.expires, ipv4.expires) : Date.now() + 5000, refreshing: null};
@@ -479,17 +488,9 @@ const connectGroups = async (groups, port, limit, socketOptions) => {
     for (let i = 0, len = groups.length; i < len; i++) try {return await connectCandidates(groups[i], port, limit, socketOptions)} catch (err) {lastError = err}
     throw lastError || new Error('No connect candidates');
 };
-const isGv = h => {
-    const l = h ? h.length : 0;
-    return l >= 15 &&
-        (h.charCodeAt(l - 1) | 32) === 109 && (h.charCodeAt(l - 2) | 32) === 111 && (h.charCodeAt(l - 3) | 32) === 99 && h.charCodeAt(l - 4) === 46 &&
-        (h.charCodeAt(l - 5) | 32) === 111 && (h.charCodeAt(l - 6) | 32) === 101 && (h.charCodeAt(l - 7) | 32) === 100 && (h.charCodeAt(l - 8) | 32) === 105 &&
-        (h.charCodeAt(l - 9) | 32) === 118 && (h.charCodeAt(l - 10) | 32) === 101 && (h.charCodeAt(l - 11) | 32) === 108 && (h.charCodeAt(l - 12) | 32) === 103 &&
-        (h.charCodeAt(l - 13) | 32) === 111 && (h.charCodeAt(l - 14) | 32) === 111 && (h.charCodeAt(l - 15) | 32) === 103 && (l === 15 || h.charCodeAt(l - 16) === 46);
-};
 const hostnameFrist = dnsStrategyOrder[0] === 'hostname';
 const concurrentConnect = async (hostname, port, limit = concurrency, socketOptions, addrType) => {
-    if (addrType !== 3 || hostnameFrist || isGv(hostname)) return connectCandidates([hostname], port, limit, socketOptions);
+    if (addrType !== 3 || hostnameFrist) return connectCandidates([hostname], port, limit, socketOptions);
     const cached = await getDnsConnectCache(hostname);
     const groups = shuffleCandidates(cached.ipv6, cached.ipv4, hostname);
     try {
