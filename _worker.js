@@ -65,7 +65,7 @@ const errorHtmlUrl = 'https://1345695.github.io/index-404-html/';
 import wasmModule from './protocol.wasm';
 const instance = new WebAssembly.Instance(wasmModule);
 const {
-    memory, getUuidPtr, getResultPtr, getDataPtr, getHttpAuthPtr, getSocks5AuthPtr, setHttpAuthLenWasm, setSocks5AuthLenWasm, setSniSniffWasm, parseProtocolWasm, parseUrlWasm,
+    memory, getUuidPtr, getResultPtr, getDataPtr, getHttpAuthPtr, getSocks5AuthPtr, parseProtocolWasm, parseUrlWasm,
     initCredentialsWasm, getTemplateWasm, getSecretStringWasm
 } = instance.exports;
 const wasmMem = new Uint8Array(memory.buffer);
@@ -102,13 +102,13 @@ const initializeWasm = (env) => {
     if (user && pass) {
         const authBytes = textEncoder.encode(btoa(`${user}:${pass}`));
         wasmMem.set(authBytes, getHttpAuthPtr());
-        setHttpAuthLenWasm(authBytes.length);
+        wasmRes[2] = authBytes.length;
         const userBytes = textEncoder.encode(user);
         const passBytes = textEncoder.encode(pass);
         const socks5Pkg = new Uint8Array(3 + userBytes.length + passBytes.length);
         socks5Pkg[0] = 1, socks5Pkg[1] = userBytes.length, socks5Pkg.set(userBytes, 2), socks5Pkg[2 + userBytes.length] = passBytes.length, socks5Pkg.set(passBytes, 3 + userBytes.length);
         wasmMem.set(socks5Pkg, getSocks5AuthPtr());
-        setSocks5AuthLenWasm(socks5Pkg.length);
+        wasmRes[3] = socks5Pkg.length;
     }
     cachedTemplates = new Array(9);
     const subUuid = uuid || crypto.randomUUID();
@@ -341,6 +341,7 @@ const addrTypeIs = hostname => {
 };
 const createConnect = (hostname, port, socketOptions, socket = connect({hostname, port}, socketOptions)) => socket.opened.then(() => socket);
 const dohHeaders = {'content-type': 'application/dns-message', 'accept': 'application/dns-message'}, dohJsonHeaders = {headers: {'accept': 'application/dns-json'}};
+const dnsCacheBase = 'https://cache.a/', dnsConnectCache = new Map(), dnsInFlight = new Map();
 const concurrentDnsResolve = async (hostname, recordType) => {
     const q = '?name=' + hostname + '&type=' + recordType;
     const res = await Promise.any([
@@ -349,7 +350,25 @@ const concurrentDnsResolve = async (hostname, recordType) => {
     ]).catch(() => null);
     return res?.Answer || res?.answer || null;
 };
-const dnsConnectCache = new Map(), dnsInFlight = new Map();
+const getFromEdgeCache = async key => {
+    try {
+        const res = await caches.default.match(dnsCacheBase + key);
+        if (res) {
+            const data = await res.json();
+            if (Date.now() > data.softExpires) (key.startsWith('TXT:') ? getTxtDnsCache(key.slice(4)) : dnsConnectResolve(key)).catch(() => {});
+            return {data: data.data, expires: Date.now() + 180000, refreshing: null};
+        }
+    } catch {}
+    return null;
+};
+const writeToEdgeCache = (key, data, softExpires) => {
+    try {
+        const res = new Response(JSON.stringify({data, softExpires}), {
+            headers: {'content-type': 'application/json', 'cache-control': 'public, max-age=86400'}
+        });
+        caches.default.put(dnsCacheBase + key, res).catch(() => {});
+    } catch {}
+};
 const setDnsConnectCache = (hostname, result) => {
     if (!dnsConnectCache.has(hostname) && dnsConnectCache.size >= 5000) {
         const now = Date.now();
@@ -397,6 +416,7 @@ const dnsConnectResolve = async hostname => {
     const hasRecord = ipv6.records.length || ipv4.records.length;
     const result = {ipv6: ipv6.records, ipv4: ipv4.records, expires: hasRecord ? Math.max(ipv6.expires, ipv4.expires) : Date.now() + 5000, refreshing: null};
     setDnsConnectCache(hostname, result);
+    if (hasRecord) writeToEdgeCache(hostname, {ipv6: result.ipv6, ipv4: result.ipv4}, result.expires);
     return result;
 };
 const getDnsConnectCache = hostname => {
@@ -412,11 +432,19 @@ const getDnsConnectCache = hostname => {
     }
     let pending = dnsInFlight.get(hostname);
     if (pending) return pending;
-    pending = dnsConnectResolve(hostname).finally(() => {dnsInFlight.delete(hostname)});
+    pending = (async () => {
+        const edgeCached = await getFromEdgeCache(hostname);
+        if (edgeCached) {
+            const res = {ipv6: edgeCached.data.ipv6, ipv4: edgeCached.data.ipv4, expires: edgeCached.expires, refreshing: null};
+            setDnsConnectCache(hostname, res);
+            return res;
+        }
+        return await dnsConnectResolve(hostname);
+    })().finally(() => {dnsInFlight.delete(hostname)});
     dnsInFlight.set(hostname, pending);
     return pending;
 };
-const getTxtDnsCache = txtdns => {
+const getTxtDnsCache = async txtdns => {
     const key = 'TXT:' + txtdns;
     let cached = dnsConnectCache.get(key);
     const now = Date.now(), resolve = async () => {
@@ -431,17 +459,27 @@ const getTxtDnsCache = txtdns => {
                 }
             }
         }
-        const result = {answer, expires: Date.now() + (hasTxt ? Math.max(ttl, 180000) : 5000), refreshing: null};
+        const expires = Date.now() + (hasTxt ? Math.max(ttl, 180000) : 5000);
+        const result = {answer, expires, refreshing: null};
         setDnsConnectCache(key, result);
+        if (hasTxt) writeToEdgeCache(key, answer, expires);
         return result;
     };
-    if (!cached) return resolve();
-    if (cached.expires > now) return cached;
-    cached.refreshing ||= resolve().catch(() => null).finally(() => {
-        const current = dnsConnectCache.get(key);
-        if (current) current.refreshing = null;
-    });
-    return cached.answer ? cached : cached.refreshing;
+    if (cached) {
+        if (cached.expires > now) return cached;
+        cached.refreshing ||= resolve().catch(() => null).finally(() => {
+            const current = dnsConnectCache.get(key);
+            if (current) current.refreshing = null;
+        });
+        return cached.answer ? cached : cached.refreshing;
+    }
+    const edge = await getFromEdgeCache(key);
+    if (edge) {
+        const res = {answer: edge.data, expires: edge.expires, refreshing: null};
+        setDnsConnectCache(key, res);
+        return res;
+    }
+    return resolve();
 };
 const closeSocket = s => {try {s?.close?.()} catch {}};
 const fastShuffle = records => {
@@ -1356,7 +1394,7 @@ const extractSniBytes = (data) => {
                 const nameType = data[sniOffset], nameLen = (data[sniOffset + 1] << 8) | data[sniOffset + 2];
                 sniOffset += 3;
                 if (nameType === 0x00) {
-                    if (sniOffset + nameLen <= sniEnd) return {sni: data.subarray(sniOffset, sniOffset + nameLen)};
+                    if (sniOffset + nameLen <= sniEnd) return {offset: sniOffset, len: nameLen};
                     return {needMore: true};
                 }
                 sniOffset += nameLen;
@@ -1718,19 +1756,19 @@ const handleSession = async (chunk, state, request, writable, close, isEarlyData
                 const decryptCtx = await createSsAeadCtx(chunk.subarray(0, 16)), plain = await ssAeadDecryptFeed(decryptCtx, chunk.subarray(16)), plainLen = plain.length;
                 if (plainLen > 0) {
                     let addrType = plain[0];
-                    const addrLen = addrType === 3 ? (plainLen > 1 ? plain[1] : null) : addrType === 1 ? 4 : addrType === 4 ? 16 : -1;
+                    let addrLen = addrType === 3 ? (plainLen > 1 ? plain[1] : null) : addrType === 1 ? 4 : addrType === 4 ? 16 : -1;
                     if (addrLen !== null && addrLen > 0) {
-                        const addrOffset = addrType === 3 ? 2 : 1, dataOffset = addrOffset + addrLen + 2;
+                        let addrOffset = addrType === 3 ? 2 : 1;
+                        const dataOffset = addrOffset + addrLen + 2;
                         if (plainLen >= dataOffset) {
                             const portOffset = dataOffset - 2, port = (plain[portOffset] << 8) | plain[portOffset + 1];
-                            let addrBytes = plain.subarray(addrOffset, addrOffset + addrLen);
                             payload = plain.subarray(dataOffset);
                             if (enableSniSniff && addrType !== 3 && payload.length > 0) {
                                 const sniRes = extractSniBytes(payload);
                                 if (sniRes?.needMore && allowNeedMore) return state.needMore = true;
-                                sniRes?.sni && (addrType = 3, addrBytes = sniRes.sni);
+                                sniRes?.len && (addrType = 3, addrOffset = dataOffset + sniRes.offset, addrLen = sniRes.len);
                             }
-                            parsedRequest = {addrType, addrBytes, dataOffset, port, isDns: port === 53};
+                            parsedRequest = {addrType, addrBytes: plain.subarray(addrOffset, addrOffset + addrLen), dataOffset, port, isDns: port === 53};
                             const encryptCtx = await createSsAeadCtx();
                             isSs = true, state.ssInbound = decryptCtx, state.ssOutbound = encryptCtx, state.ssResponseSalt = encryptCtx.salt;
                         }
