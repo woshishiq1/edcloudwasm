@@ -1,6 +1,6 @@
 name = "zjdl2"
 main = "_worker.js"  # 你的 JS 逻辑代码
-compatibility_date = "2026-09-16"
+compatibility_date = "2026-09-19"
 keep_vars = true
 minify = true
 # pages中环境变量需要手动填写并重试部署才会生效，worker环境变量和路由自定义域名这些建议直接使用wrangler.toml文件来配置
@@ -23,11 +23,11 @@ S5HTTPPASS = "123456"
 #放置
 # 更多位置去查询云主机区域位置.csv
 
-# [placement]
+ [placement]
 # region = "aws:eu-west-2" #伦敦
 # region = "aws:eu-central-1" #法兰克福
 # region = "aws:eu-west-3" #巴黎
-# region = "azure:japanwest" #东京
+ region = "azure:japanwest" #东京
 # region = "azure:malaysiawest" #马来西亚
 # region = "gcp:asia-east1" #新加坡
 # region = "aws:ap-east-2" #台北
