@@ -65,21 +65,15 @@ const proxyStrategyOrder = ['socks', 'http', 'https', 'sstp', 'turn', 'turns', '
 const dohEndpoints = ['https://cloudflare-dns.com/dns-query', 'https://dns.google/dns-query'];
 const dohNatEndpoints = ['https://cloudflare-dns.com/dns-query', 'https://dns.google/resolve'];
 const finallyProxyHost = 'proxy.zjcloud.us.ci';//兜底proxyip
-let currentColo = null;
-const getCurrentColo = async () => {
+const traceUrl = 'https://cp.cloudflare.com/cdn-cgi/trace', proxySuffix = '.proxy.zjcloud.us.ci';
+let currentColo = null, pendingPromise = null;
+const getCurrentColo = () => {
     if (currentColo !== null) return currentColo;
-    try {
-        const text = await fetch('https://cp.cloudflare.com/cdn-cgi/trace', {
-            headers: {'User-Agent': 'Mozilla/5.0'}
-        }).then(r => r.text());
-        const i = text.indexOf('colo=');
-        const colo = i >= 0 ? text.slice(i + 5, i + 8) : '';
-        currentColo = colo ? `${colo.toLowerCase()}.proxy.zjcloud.us.ci` : '';
-        return currentColo;
-    } catch {
-        currentColo = null;
-        return '';
-    }
+    if (pendingPromise !== null) return pendingPromise;
+    return pendingPromise = fetch(traceUrl, {signal: AbortSignal.timeout(10)}).then(r => r.text()).then(t => {
+        const i = t.indexOf("colo=");
+        return currentColo = i !== -1 ? t.slice(i + 5, i + 8) + proxySuffix : finallyProxyHost
+    }).catch(() => currentColo = finallyProxyHost).finally(() => {pendingPromise = null})
 };
 const _h = c => (c > 64 ? (c & 7) + 9 : c & 15);
 const _b = p => (_h(uuid.charCodeAt(p)) << 4) | _h(uuid.charCodeAt(p + 1));
@@ -308,13 +302,12 @@ const concurrentDnsResolve = async (hostname, recordType) => {
     ]).catch(() => null);
     return res?.Answer || res?.answer || null;
 };
-const closeSocket = s => {try {s?.close?.()} catch {}};
 const raceAny = promises => {
     let settled = false;
     const len = promises.length, resolvedList = [], wrapped = new Array(len);
     for (let i = 0; i < len; i++) wrapped[i] = promises[i].then(res => {
         if (!res || settled) {
-            if (res) closeSocket(res);
+            res?.close();
             throw null;
         }
         resolvedList.push(res);
@@ -322,7 +315,7 @@ const raceAny = promises => {
     });
     return Promise.any(wrapped).then(win => {
         settled = true;
-        for (let i = 1, l = resolvedList.length; i < l; i++) closeSocket(resolvedList[i]);
+        for (let i = 1, l = resolvedList.length; i < l; i++) resolvedList[i]?.close();
         return win;
     });
 };
