@@ -1,4 +1,4 @@
-name = "zjdl2"
+name = "zjdl3"
 main = "_worker.js"  # 你的 JS 逻辑代码
 compatibility_date = "2026-09-24"
 keep_vars = true
