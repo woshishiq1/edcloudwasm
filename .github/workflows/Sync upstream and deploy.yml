@@ -57,42 +57,47 @@ jobs:
           echo "upstream_commit=${upstream_commit}"
           echo "head_commit=${head_commit}"
 
-          # 1. 备份你当前仓库里正常运行的 wrangler.toml
+          # 1. 备份你当前仓库里的 wrangler.toml
           cp wrangler.toml /tmp/my_wrangler.toml
 
           # 2. 拉取上游最新代码
           git checkout --force "${upstream_commit}" -- .
           git checkout HEAD -- .github/
 
-          # 3. 提取你备份中的自定义字段并写入 wrangler.toml，同时自动填充 UTC 当天的日期
+          # 3. 提取备份中的自定义字段（排除 UUID），更新 wrangler.toml 并填充当前 UTC 日期
           python3 - <<'EOF'
           import re
           from datetime import datetime, timezone
 
           mine = open('/tmp/my_wrangler.toml').read()
           vals = {}
-          
-          # 自动获取当前 UTC 时间的日期（格式 YYYY-MM-DD），解决跨时区导致的未来日期报错
+
           today_utc = datetime.now(timezone.utc).strftime('%Y-%m-%d')
           print(f"自动将 compatibility_date 设置为当前 UTC 日期: {today_utc}")
 
-          # 提取自定义变量
-          for key in ['name', 'UUID', 'PASSWORD', 'SSPASS', 'S5HTTPUSER', 'S5HTTPPASS']:
+          # 提取自定义变量（剔除 UUID，避免写进文件提交）
+          for key in ['name', 'PASSWORD', 'SSPASS', 'S5HTTPUSER', 'S5HTTPPASS']:
               m = re.search(rf'^{key}\s*=\s*"([^"]*)"', mine, re.M)
               if m:
                   vals[key] = m.group(1)
 
           cur = open('wrangler.toml').read()
 
-          # 动态更新或添加 compatibility_date 为当前 UTC 日期
+          # 强制清理 wrangler.toml 里可能残留的 UUID 定义
+          cur = re.sub(r'^\s*UUID\s*=.*$\n?', '', cur, flags=re.M)
+
+          # 动态更新或添加 compatibility_date
           if re.search(r'^compatibility_date\s*=', cur, re.M):
               cur = re.sub(r'^compatibility_date\s*=\s*"[^"]*"', f'compatibility_date = "{today_utc}"', cur, flags=re.M)
           else:
               cur += f'\ncompatibility_date = "{today_utc}"\n'
 
-          # 还原包含 name 和环境变量在内的所有个人配置
+          # 还原包含 name 和环境变量在内的其它个人配置
           for key, val in vals.items():
-              cur = re.sub(rf'^{key}\s*=\s*"[^"]*"', f'{key} = "{val}"', cur, flags=re.M)
+              if re.search(rf'^{key}\s*=', cur, re.M):
+                  cur = re.sub(rf'^{key}\s*=\s*"[^"]*"', f'{key} = "{val}"', cur, flags=re.M)
+              else:
+                  cur += f'\n{key} = "{val}"\n'
 
           # 确保 [limits] 和 cpu_ms 被注释
           cur = re.sub(r'^\s*(\[limits\])', r'#\1', cur, flags=re.M)
@@ -108,7 +113,7 @@ jobs:
           cur = re.sub(r'^#+\s*#', '#', cur, flags=re.M)
 
           open('wrangler.toml', 'w').write(cur)
-          print('wrangler.toml 配置更新完成，已自动设置兼容日期！')
+          print('wrangler.toml 配置更新完成（已安全剔除 UUID 明文）！')
           EOF
 
           # 4. 检查变动并提交
@@ -126,5 +131,7 @@ jobs:
 
       - name: Deploy to Cloudflare Workers
         if: steps.sync.outputs.updated == 'true' || github.event_name == 'workflow_dispatch'
+        env:
+          UUID: ${{ secrets.UUID }}
         run: |
-          npx wrangler deploy
+          npx wrangler deploy --var UUID:"$UUID"
