@@ -1,4 +1,3 @@
-import {connect} from 'cloudflare:sockets';
 const uuid = 'd342d11e-d424-4583-b36e-524ab1f0afa4';
 //**警告**:trojan使用的sha224密钥，需要自己计算，当前设置为密码666的密钥
 //**警告**:trojan使用的sha224密钥，需要自己计算，当前设置为密码666的密钥
@@ -8,23 +7,31 @@ const passWordSha224 = '509eece82eb6910bebef9af9496092d3244b6c0d69ef3aaa4b12c565
 // URL路径添加 speed=N 可限制下行速度，单位为 MB/s，例如 /?speed=50。
 const bufferSize = 256 * 1024;
 const startThreshold = 50 * 1024 * 1024;
-const maxChunkLen = 64 * 1024;
-const flushTime = 4;
-let concurrency = 4;
+const maxChunkLen = 4 * 1024;
+const flushTime = 3;
+const concurrency = 4;
 const urlParamCacheLimit = 20;
 const proxyStrategyOrder = ['socks', 'http', 'https'];
+const aiProxyip = 'kr.william.us.ci';
 const dohEndpoints = ['https://cloudflare-dns.com/dns-query', 'https://dns.google/dns-query'];
 const dohNatEndpoints = ['https://cloudflare-dns.com/dns-query', 'https://dns.google/resolve'];
-const finallyProxyHost = 'proxy.zjcloud.us.ci';
-const traceUrl = 'http://cp.cloudflare.com/cdn-cgi/trace', proxySuffix = '.proxy.zjcloud.us.ci';
-let currentColo = null, pendingPromise = null;
+const getProxyHost = () => {
+    const e = (Math.random() * 65536) | 0;
+    return String.fromCharCode(112 ^ (e & 1) << 5, 114 ^ (e >> 1 & 1) << 5, 111 ^ (e >> 2 & 1) << 5, 120 ^ (e >> 3 & 1) << 5, 121 ^ (e >> 4 & 1) << 5, 46, 122 ^ (e >> 5 & 1) << 5, 106 ^ (e >> 6 & 1) << 5, 99 ^ (e >> 7 & 1) << 5, 108 ^ (e >> 8 & 1) << 5, 111 ^ (e >> 9 & 1) << 5, 117 ^ (e >> 10 & 1) << 5, 100 ^ (e >> 11 & 1) << 5, 46, 117 ^ (e >> 12 & 1) << 5, 115 ^ (e >> 13 & 1) << 5, 46, 99 ^ (e >> 14 & 1) << 5, 105 ^ (e >> 15 & 1) << 5);
+};
+const proxyHost = getProxyHost(), traceUrl = 'http://cp.cloudflare.com/cdn-cgi/trace';
+let colo = null, currentColo = null, pendingPromise = null;
 const getCurrentColo = () => {
     if (currentColo !== null) return currentColo;
     if (pendingPromise !== null) return pendingPromise;
     return pendingPromise = fetch(traceUrl, {signal: AbortSignal.timeout(200)}).then(r => r.text()).then(t => {
         const i = t.indexOf("colo=");
-        return currentColo = i !== -1 ? t.slice(i + 5, i + 8) + proxySuffix : finallyProxyHost
-    }).catch(() => currentColo = finallyProxyHost).finally(() => {pendingPromise = null})
+        colo = i !== -1 ? t.slice(i + 5, i + 8) : '';
+        return currentColo = colo ? colo + '.' + proxyHost : proxyHost;
+    }).catch(() => {
+        colo = '';
+        return currentColo = proxyHost;
+    }).finally(() => {pendingPromise = null});
 };
 const _h = c => (c > 64 ? (c & 7) + 9 : c & 15);
 const _b = p => (_h(uuid.charCodeAt(p)) << 4) | _h(uuid.charCodeAt(p + 1));
@@ -36,7 +43,7 @@ const H0 = _c(0), H1 = _c(1), H2 = _c(2), H3 = _c(3), H4 = _c(4), H5 = _c(5), H6
     H42 = _c(42), H43 = _c(43), H44 = _c(44), H45 = _c(45), H46 = _c(46), H47 = _c(47), H48 = _c(48), H49 = _c(49), H50 = _c(50), H51 = _c(51), H52 = _c(52), H53 = _c(53), H54 = _c(54), H55 = _c(55);
 const textEncoder = new TextEncoder, textDecoder = new TextDecoder;
 const binaryAddrToString = (addrType, addrBytes) => {
-    if (addrType === 3) return textDecoder.decode(addrBytes);
+    if (addrType === 3) return addrBytes.length <= 64 ? String.fromCharCode.apply(null, addrBytes) : textDecoder.decode(addrBytes);
     if (addrType === 1) return `${addrBytes[0]}.${addrBytes[1]}.${addrBytes[2]}.${addrBytes[3]}`;
     let ipv6 = ((addrBytes[0] << 8) | addrBytes[1]).toString(16);
     for (let i = 1; i < 8; i++) ipv6 += ':' + ((addrBytes[i * 2] << 8) | addrBytes[i * 2 + 1]).toString(16);
@@ -72,7 +79,8 @@ const parseAuthString = (authParam) => {
     const [hostname, port] = parseHostPort(hostStr, 1080);
     return {username, password, hostname, port};
 };
-const createConnect = (hostname, port, socketOptions, socket = connect({hostname, port}, socketOptions)) => socket.opened.then(() => socket);
+let fetcher = null;
+const createConnect = (hostname, port, socketOptions, socket = fetcher.connect({hostname, port}, socketOptions)) => socket.opened.then(() => socket);
 const dohHeaders = {'content-type': 'application/dns-message', 'accept': 'application/dns-message'}, dohJsonHeaders = {headers: {'accept': 'application/dns-json'}};
 const concurrentDnsResolve = async (hostname, recordType) => {
     const q = '?name=' + hostname + '&type=' + recordType;
@@ -255,7 +263,7 @@ const txtdnsResult = async (txtdns) => {
 };
 const proxyIpRegex = /william|fxpip|hhtxt/;
 const connectProxyIp = async (param, limit, txt) => {
-    if (param === undefined) param = await getCurrentColo() || finallyProxyHost;
+    if (param === undefined) param = await getCurrentColo() || proxyHost;
     if (txt || proxyIpRegex.test(param)) {
         let resolvedIps = await txtdnsResult(param);
         if (!resolvedIps || resolvedIps.length === 0) return null;
@@ -275,6 +283,33 @@ const connectProxyIp = async (param, limit, txt) => {
     const [host, port] = parseHostPort(param, 443);
     return concurrentConnect(host, port, limit);
 };
+const aiDomains = [
+    "chatgpt.com", "openai.com", "oaistatic.com", "oaiusercontent.com",
+    "chat.com", "claude.ai", "claude.com", "anthropic.com", "grok.com", "x.ai",
+    "perplexity.ai", "poe.com", "character.ai", "pi.ai", "you.com", "phind.com",
+    "blackbox.ai", "civitai.com"
+].map(d => textEncoder.encode(d));
+const isAiDomain = (addrBytes, addrType) => {
+    if (addrType !== 3 || !addrBytes) return false;
+    let len = addrBytes.length;
+    if (len > 0 && addrBytes[len - 1] === 46) len--;
+    for (let i = 0; i < aiDomains.length; i++) {
+        const d = aiDomains[i], dLen = d.length;
+        if (len < dLen) continue;
+        if (len > dLen && addrBytes[len - dLen - 1] !== 46) continue;
+        let match = true;
+        const offset = len - dLen;
+        for (let j = 0; j < dLen; j++) {
+            const c = addrBytes[offset + j];
+            if ((c >= 65 && c <= 90 ? c + 32 : c) !== d[j]) {
+                match = false;
+                break;
+            }
+        }
+        if (match) return true;
+    }
+    return false;
+};
 const strategyExecutorMap = new Map([
     [0, ({addrType, port, addrBytes}, _param, limit) => concurrentConnect(binaryAddrToString(addrType, addrBytes), port, limit)],
     [1, async ({addrType, port, addrBytes}, param, limit, _txt) => connectViaSocksProxy(addrType, port, param, addrBytes, limit)],
@@ -291,14 +326,27 @@ const urlListCacheDict = new Map(), urlListCacheKeys = new Array(urlParamCacheLi
 let urlListCacheIndex = 0;
 const establishTcpConnection = async (parsedRequest, request) => {
     let u = request.url, clean = u.slice(u.indexOf('/', 10) + 1), l = clean.length, list = [], speed;
-    const c = clean.charCodeAt(l - 1);
-    if (c === 47 || c === 61) clean = clean.slice(0, l - 1);
-    const cachedResult = urlListCacheDict.get(clean);
-    if (cachedResult !== undefined) {
-        list = cachedResult.list, speed = cachedResult.speed;
+    if (l > 3 && clean.charCodeAt(l - 4) === 47 && clean.charCodeAt(l - 3) === 84 && clean.charCodeAt(l - 2) === 117 && clean.charCodeAt(l - 1) === 110) {
+        clean = clean.slice(0, l - 4);
     } else {
+        const c = clean.charCodeAt(l - 1);
+        if (c === 47 || c === 61) clean = clean.slice(0, l - 1);
+    }
+    let cachedResult = urlListCacheDict.get(clean);
+    if (cachedResult !== undefined) {
+        speed = cachedResult.speed;
+        if (!cachedResult.aiList) {
+            list = cachedResult.list;
+        } else {
+            if (colo === null) await getCurrentColo();
+            const isHkgAi = colo === 'HKG' && isAiDomain(parsedRequest.addrBytes, parsedRequest.addrType);
+            list = isHkgAi ? cachedResult.aiList : cachedResult.list;
+        }
+    } else {
+        let normalList = [], aiList = null;
         if (clean.length < 6) {
-            list.push({type: 0}, {type: 3}, {type: 3, param: finallyProxyHost});
+            normalList.push({type: 0}, {type: 3}, {type: 3, param: proxyHost});
+            aiList = [{type: 3, param: aiProxyip}, {type: 3}, {type: 3, param: proxyHost}];
         } else {
             const p = Object.create(null);
             paramRegex.lastIndex = 0;
@@ -307,36 +355,48 @@ const establishTcpConnection = async (parsedRequest, request) => {
             if (p.speed) speed = p.speed;
             const s5 = p.gs5 || p.s5all || p.s5 || p.socks, http = p.ghttp || p.httpall || p.http, https = p.ghttps || p.httpsall || p.https;
             const proxyAll = !!(p.gs5 || p.s5all || p.ghttp || p.httpall || p.ghttps || p.httpsall || p.proxyall || p.globalproxy || p.global);
-            if (!proxyAll) list.push({type: 0});
-            const add = (v, t, txt) => {
+            const proxyItems = [];
+            const add = (targetList, v, t, txt) => {
                 if (!v) return;
                 const parts = decodeURIComponent(v).split(',').filter(Boolean);
                 if (txt) {
-                    for (let i = 0; i < parts.length; i++) list.push({type: t, param: parts[i], txt});
+                    for (let i = 0; i < parts.length; i++) targetList.push({type: t, param: parts[i], txt});
                 } else if (parts.length) {
                     const parsedParams = parts.map(part => {
-                        if (t === 1 || t === 2 || t === 6) return parseAuthString(part);
+                        if (t === 1) return parseAuthString(part, 1080);
+                        if (t === 2) return parseAuthString(part, 80);
+                        if (t === 6) return parseAuthString(part, 443);
                         return part;
                     });
-                    list.push({type: t, param: parsedParams, concurrent: true});
+                    targetList.push({type: t, param: parsedParams, concurrent: true});
                 }
             };
             for (let i = 0; i < proxyStrategyOrder.length; i++) {
                 const k = proxyStrategyOrder[i];
-                add(k === 'socks' ? s5 : k === 'http' ? http : https, k === 'socks' ? 1 : k === 'http' ? 2 : 6);
+                add(proxyItems, k === 'socks' ? s5 : k === 'http' ? http : https, k === 'socks' ? 1 : k === 'http' ? 2 : 6);
             }
             if (proxyAll) {
-                if (!list.length) list.push({type: 0});
+                normalList.push(...proxyItems);
+                if (!normalList.length) normalList.push({type: 0});
+                aiList = null;
             } else {
-                add(p.ip, 3), add(p.txtip, 3, true);
-                list.push({type: 3}, {type: 3, param: finallyProxyHost});
+                normalList.push({type: 0}, ...proxyItems), add(normalList, p.ip, 3), add(normalList, p.txtip, 3, true);
+                normalList.push({type: 3}, {type: 3, param: proxyHost}), aiList = [...proxyItems];
+                add(aiList, p.ip || aiProxyip, 3), add(aiList, p.txtip, 3, true), aiList.push({type: 3}, {type: 3, param: proxyHost});
             }
         }
         const oldKey = urlListCacheKeys[urlListCacheIndex];
         if (oldKey !== undefined) urlListCacheDict.delete(oldKey);
         urlListCacheKeys[urlListCacheIndex] = clean;
-        urlListCacheDict.set(clean, {list, speed});
+        urlListCacheDict.set(clean, {list: normalList, aiList, speed});
         urlListCacheIndex = (urlListCacheIndex + 1) % urlParamCacheLimit;
+        if (!aiList) {
+            list = normalList;
+        } else {
+            if (colo === null) await getCurrentColo();
+            const isHkgAi = colo === 'HKG' && isAiDomain(parsedRequest.addrBytes, parsedRequest.addrType);
+            list = isHkgAi ? aiList : normalList;
+        }
     }
     for (let i = 0; i < list.length; i++) {
         try {
@@ -355,74 +415,68 @@ const manualPipe = async (readable, writable, close, speed) => {
     if (speedLimit) {
         pipeStartThreshold = n > 256 ? Number.MAX_SAFE_INTEGER : n * 1048576;
         let bestSize = pipeBufferSize, bestTime = Infinity, bestDiff = Infinity;
-        for (let size = 262144; size <= 524288; size += 65536) {
+        for (let size = 262144; size <= 524288; size += 4096) {
             const timeMs = Math.max(2, Math.round(size * 1000 / pipeStartThreshold)), diff = Math.abs(size * 1000 / timeMs - pipeStartThreshold);
             if (diff < bestDiff || (diff === bestDiff && timeMs < bestTime)) bestSize = size, bestTime = timeMs, bestDiff = diff;
         }
         pipeBufferSize = bestSize, pipeFlushTime = bestTime;
     }
-    const safeBufferSize = pipeBufferSize - maxChunkLen, fastFlushOffset = maxChunkLen << 1;
+    const safeBufferSize = pipeBufferSize - maxChunkLen;
     let bufferView = new Uint8Array(pipeBufferSize), spareBuffer = new ArrayBuffer(maxChunkLen);
-    let offset = 0, totalBytes = 0, time = 0, timerId = null, resume = null, isReading = false;
-    let needsFlush = false, protectFlush = false, fastFlush = true, done, value;
+    let offset = 0, totalBytes = 0, time = 0, timerId = null, delays = 0, resume = null, done, value;
     const flushBuffer = () => {
-        if (isReading) return needsFlush = true;
-        fastFlush = offset < fastFlushOffset;
         if (offset > 0) (writable.send(bufferView.subarray(0, offset)), offset = 0);
-        needsFlush = false, protectFlush = false, timerId && (clearTimeout(timerId), timerId = null), resume?.(), resume = null;
+        timerId && (clearTimeout(timerId), timerId = null), resume?.(), resume = null;
+        delays = 0;
     };
     const reader = readable.getReader({mode: 'byob'});
     try {
         while (true) {
-            if (offset > 0 && protectFlush) {
+            if (offset > 0) {
                 ({done, value} = await reader.read(new Uint8Array(spareBuffer, 0, maxChunkLen)));
                 bufferView.set(value, offset), spareBuffer = value.buffer;
             } else {
-                isReading = offset > 0;
                 ({done, value} = await reader.read(new Uint8Array(bufferView.buffer, offset, maxChunkLen)));
-                isReading = false, bufferView = new Uint8Array(value.buffer);
+                bufferView = new Uint8Array(value.buffer);
             }
             if (done) break;
             const chunkLen = value.byteLength;
-            if (!chunkLen) {
-                needsFlush && flushBuffer();
-                continue;
-            }
             offset += chunkLen, totalBytes += chunkLen;
-            if (needsFlush) {
-                flushBuffer();
+            if (chunkLen < 4096) {
+                if (!speedLimit) totalBytes = 0;
+                time = 0;
             } else {
-                if (fastFlush || chunkLen < 28672) {
-                    if (!speedLimit) totalBytes = 0;
-                    time = 2;
-                } else if (totalBytes > pipeStartThreshold) time = pipeFlushTime;
-                timerId ||= setTimeout(flushBuffer, time), protectFlush = chunkLen < maxChunkLen;
-                offset > safeBufferSize && (totalBytes > pipeStartThreshold ? await new Promise(r => resume = r) : flushBuffer());
+                delays = 0;
+                if (totalBytes > pipeStartThreshold) time = pipeFlushTime;
             }
+            time === 0
+                ? (timerId ? (delays < 2 ? (clearTimeout(timerId), timerId = setTimeout(flushBuffer, 0), delays++) : flushBuffer()) : (timerId = setTimeout(flushBuffer, 0)))
+                : (timerId ||= setTimeout(flushBuffer, time));
+            offset > safeBufferSize && (totalBytes > pipeStartThreshold ? await new Promise(r => resume = r) : flushBuffer());
         }
-    } catch {offset = 0, close?.()} finally {isReading = false, flushBuffer()}
+    } catch {offset = 0, close?.()} finally {flushBuffer()}
 };
 const createBufferedTcpWriter = (tcpWriter, close) => {
     const buffer = new Uint8Array(32768);
-    let offset = 0, timerId = null, closed = false;
+    let offset = 0, timerId = null, delays = 0, closed = false;
     const closeWriter = () => {
         if (closed) return;
-        closed = true;
-        timerId && (clearTimeout(timerId), timerId = null);
-        close?.();
+        closed = true, timerId && (clearTimeout(timerId), timerId = null), close?.();
     };
-    const safeWrite = data => {try {tcpWriter.write(data)} catch {closeWriter()}};
     const flush = () => {
         timerId && (clearTimeout(timerId), timerId = null);
+        delays = 0;
         if (!offset || closed) return;
         const len = offset;
-        offset = 0, safeWrite(buffer.subarray(0, len));
+        offset = 0;
+        try {tcpWriter.write(buffer.subarray(0, len))} catch {closeWriter()}
     };
     return chunk => {
         if (closed) return;
         const data = chunk.constructor === Uint8Array ? chunk : new Uint8Array(chunk), len = data.byteLength;
         if (!len) return;
-        offset + len > 32768 && flush(), buffer.set(data, offset), offset += len, offset === 32768 ? flush() : (timerId ||= setTimeout(flush, 2));
+        offset + len > 32768 && flush(), buffer.set(data, offset), offset += len;
+        offset === 32768 ? flush() : (timerId ? (delays < 2 ? (clearTimeout(timerId), timerId = setTimeout(flush, 0), delays++) : flush()) : (timerId = setTimeout(flush, 0)));
     };
 };
 const createAsyncMicrotaskQueue = (consume, close) => {
@@ -502,10 +556,11 @@ const handleXwebPost = async (request) => {
     const close = () => {if (state.xwebPipeTo) state.xwebPipeTo = false, reader.cancel().catch(() => {}), responseWriter.close().catch(() => {})};
     const writable = {send(chunk) {if (chunk?.byteLength) return responseWriter.write(chunk)}};
     (async () => {
-        let bufferView = new Uint8Array(32768), spareBuffer = new ArrayBuffer(8192), used = 0, uploaded = 0, timerId = null, done, value;
+        let bufferView = new Uint8Array(32768), spareBuffer = new ArrayBuffer(8192), used = 0, uploaded = 0, timerId = null, delays = 0, done, value;
         const flush = () => {
             if (used > 0 && state.tcpWriter && bufferView) (state.tcpWriter(bufferView.subarray(0, used)), used = 0);
             timerId && (clearTimeout(timerId), timerId = null);
+            delays = 0;
         };
         try {
             while (true) {
@@ -528,7 +583,7 @@ const handleXwebPost = async (request) => {
                         request.body.pipeThrough(upBridge).pipeTo(state.tcpSocket.writable);
                         break;
                     }
-                    used > 24576 ? flush() : (timerId ||= setTimeout(flush, 2));
+                    used > 24576 ? flush() : (timerId ? (delays < 2 ? (clearTimeout(timerId), timerId = setTimeout(flush, 0), delays++) : flush()) : (timerId = setTimeout(flush, 0)));
                 } else {
                     state.needMore = false;
                     await handleSession(bufferView.subarray(0, used), state, request, writable, close);
@@ -545,11 +600,12 @@ const handleXwebPost = async (request) => {
 };
 export default {
     async fetch(request) {
+        if (!fetcher) fetcher = request.fetcher;
         if (request.method === 'POST' && request.headers.get('content-type')?.startsWith('application/grpc')) return handleXwebPost(request);
         if (request.headers.get('Upgrade') === 'websocket') {
             const {0: clientSocket, 1: webSocket} = new WebSocketPair();
             // @ts-ignore
-            webSocket.accept({allowHalfOpen: true}), webSocket.binaryType = "arraybuffer";
+            webSocket.accept(), webSocket.binaryType = "arraybuffer";
             handleWebSocketConn(webSocket, request);
             return new Response(null, {status: 101, webSocket: clientSocket});
         }

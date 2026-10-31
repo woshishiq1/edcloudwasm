@@ -1,6 +1,6 @@
 ## 项目简介 🚀
 
-本项目是一个部署在 **Cloudflare Workers** 上的高性能多协议代理入口 / 订阅面板。
+本项目是一个部署在 **Cloudflare Workers** 上的高性能多协议代理入口。
 
 ### 功能特性 ✨
 
@@ -17,13 +17,13 @@
   - 将复杂的协议解析、节点模板拼装、订阅转换前处理等逻辑封装在 `protocol.wasm` 中；
   - 使用 Rust 编写并编译为 WebAssembly，由 `_worker.js` 在 Worker 侧调用；
   - 在兼顾体积与性能的同时彻底隐藏各个代理协议头部固定特征增强cloudflare代码审查难度。
-- **订阅与面板一体化**
-  - 访问 `/UUID` 或 `/PASSWORD` 即可打开管理面板页面，需要在代码或者环境变量配置uuid或者trojan密码
-  - 订阅后端基于 cmliu 的实现，支持 Clash / SingBox / Surge / Quantumult / Loon / Stash 等多客户端订阅。
-
+  
 ---
 
 ## 部署到 Cloudflare Workers ☁️
+
+> 💡 **在线自定义代码**：可访问 [自定义代码生成](https://jscode-1hp.pages.dev/) 自选功能并快速生成代码。  
+> 💬 **交流反馈**：使用中如有疑问或遇到 Bug，欢迎加入 Telegram 群组 [HeroCore](https://t.me/HeroCore) 并在群内 **@zj** 反馈。
 
 项目根目录下的 `wrangler.toml` 已提供基础配置，推荐的部署流程如下。
 
@@ -171,4 +171,5 @@ mv protocol.opt.wasm protocol.wasm
 - [AK大佬 (Alexandre_Kojeve)](https://t.me/Notif_Chat)
 - [天书 (HeroCore)](https://t.me/HeroCore)
 - [zizifn/edgetunnel](https://github.com/zizifn/edgetunnel)
+- [Einsiedler (jacobax)](https://github.com/jacobax/snippets)
 
