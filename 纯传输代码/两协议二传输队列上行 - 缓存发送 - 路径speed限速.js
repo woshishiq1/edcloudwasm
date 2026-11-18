@@ -4,20 +4,16 @@ const uuid = 'd342d11e-d424-4583-b36e-524ab1f0afa4';
 //**警告**:trojan使用的sha224密钥，需要自己计算，当前设置为密码666的密钥
 //**警告**:trojan使用的sha224密钥计算网址：https://www.lzltool.com/data-sha224
 const passWordSha224 = '509eece82eb6910bebef9af9496092d3244b6c0d69ef3aaa4b12c565';
-const bufferSize = 256 * 1024;
+const bufferSize = 512 * 1024;
 const wsHighWaterMark = 2 * 1024 * 1024;
-const maxChunkLen = 64 * 1024;
+const maxChunkLen = 4 * 1024;
 const concurrency = 4;
 const urlParamCacheLimit = 20;
 const proxyStrategyOrder = ['socks', 'http', 'https'];
 const aiProxyip = 'hkgai.58807.de5.net';
 const dohEndpoints = ['https://cloudflare-dns.com/dns-query', 'https://dns.google/dns-query'];
 const dohNatEndpoints = ['https://cloudflare-dns.com/dns-query', 'https://dns.google/resolve'];
-const getProxyHost = () => {
-    const e = (Math.random() * 65536) | 0;
-    return String.fromCharCode(112 ^ (e & 1) << 5, 114 ^ (e >> 1 & 1) << 5, 111 ^ (e >> 2 & 1) << 5, 120 ^ (e >> 3 & 1) << 5, 121 ^ (e >> 4 & 1) << 5, 46, 122 ^ (e >> 5 & 1) << 5, 106 ^ (e >> 6 & 1) << 5, 99 ^ (e >> 7 & 1) << 5, 108 ^ (e >> 8 & 1) << 5, 111 ^ (e >> 9 & 1) << 5, 117 ^ (e >> 10 & 1) << 5, 100 ^ (e >> 11 & 1) << 5, 46, 117 ^ (e >> 12 & 1) << 5, 115 ^ (e >> 13 & 1) << 5, 46, 99 ^ (e >> 14 & 1) << 5, 105 ^ (e >> 15 & 1) << 5);
-};
-const proxyHost = getProxyHost(), traceUrl = 'http://cp.cloudflare.com/cdn-cgi/trace';
+const proxyHost = String.fromCharCode(112, 114, 111, 88, 89, 46, 90, 106, 67, 108, 79, 85, 100, 46, 85, 83, 46, 67, 73), traceUrl = 'http://cp.cloudflare.com/cdn-cgi/trace';
 let colo = null, currentColo = null, pendingPromise = null;
 const getCurrentColo = () => {
     if (currentColo !== null) return currentColo;
@@ -138,12 +134,11 @@ const connectViaSocksProxy = async (targetAddrType, targetPortNum, socksAuth, ad
 };
 const staticHeaders = `User-Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36\r\nProxy-Connection: Keep-Alive\r\nConnection: Keep-Alive\r\n\r\n`;
 const encodedStaticHeaders = textEncoder.encode(staticHeaders);
-const connectViaHttpProxy = async (targetAddrType, targetPortNum, httpAuth, addrBytes, limit, useTls = false) => {
+const connectViaHttpProxy = async (httpHost, targetPortNum, httpAuth, limit, useTls = false) => {
     const {username, password, hostname, port} = httpAuth;
     const connectOptions = useTls ? {secureTransport: 'on', allowHalfOpen: false} : undefined;
     const proxySocket = await concurrentConnect(hostname, port, limit, connectOptions);
     const writer = proxySocket.writable.getWriter();
-    const httpHost = binaryAddrToString(targetAddrType, addrBytes);
     let dynamicHeaders = `CONNECT ${httpHost}:${targetPortNum} HTTP/1.1\r\nHost: ${httpHost}:${targetPortNum}\r\n`;
     if (username) dynamicHeaders += `Proxy-Authorization: Basic ${btoa(`${username}:${password || ''}`)}\r\n`;
     const fullHeaders = new Uint8Array(dynamicHeaders.length * 3 + encodedStaticHeaders.length);
@@ -196,7 +191,8 @@ const parseProtocolChunk = (chunk) => {
             const port = (chunk[offset] << 8) | chunk[offset + 1];
             result.handshake = new Uint8Array([chunk[0], 0]);
             result.success = true;
-            result.parsedRequest = {addrType, addrBytes: chunk.subarray(addrOffset, addrOffset + addrLen), dataOffset, port, isDns: port === 53};
+            const addrBytes = chunk.subarray(addrOffset, addrOffset + addrLen);
+            result.parsedRequest = {addrType, addrBytes, host: binaryAddrToString(addrType, addrBytes), dataOffset, port, isDns: port === 53};
             return result;
         }
     }
@@ -220,7 +216,8 @@ const parseProtocolChunk = (chunk) => {
             const portOffset = addrOffset + addrLen;
             const port = (chunk[portOffset] << 8) | chunk[portOffset + 1];
             result.success = true;
-            result.parsedRequest = {addrType, addrBytes: chunk.subarray(addrOffset, addrOffset + addrLen), dataOffset, port, isDns: port === 53};
+            const addrBytes = chunk.subarray(addrOffset, addrOffset + addrLen);
+            result.parsedRequest = {addrType, addrBytes, host: binaryAddrToString(addrType, addrBytes), dataOffset, port, isDns: port === 53};
             return result;
         }
     }
@@ -309,10 +306,10 @@ const isAiDomain = (addrBytes, addrType) => {
     return false;
 };
 const strategyExecutorMap = new Map([
-    [0, ({addrType, port, addrBytes}, _param, limit) => concurrentConnect(binaryAddrToString(addrType, addrBytes), port, limit)],
+    [0, ({host, port}, _param, limit) => concurrentConnect(host, port, limit)],
     [1, async ({addrType, port, addrBytes}, param, limit, _txt) => connectViaSocksProxy(addrType, port, param, addrBytes, limit)],
-    [2, async ({addrType, port, addrBytes}, param, limit, _txt) => connectViaHttpProxy(addrType, port, param, addrBytes, limit)],
-    [6, async ({addrType, port, addrBytes}, param, limit, _txt) => connectViaHttpProxy(addrType, port, param, addrBytes, limit, true)],
+    [2, async ({host, port}, param, limit, _txt) => connectViaHttpProxy(host, port, param, limit)],
+    [6, async ({host, port}, param, limit, _txt) => connectViaHttpProxy(host, port, param, limit, true)],
     [3, async (_parsedRequest, param, limit, txt) => connectProxyIp(param, limit, txt)]
 ]);
 const concurrentStrategyExec = (parsedRequest, params, exec, limit, txt) => {
@@ -410,11 +407,10 @@ const establishTcpConnection = async (parsedRequest, request) => {
 const manualPipe = async (readable, writable, close) => {
     const safeBufferSize = bufferSize - maxChunkLen, checkInterval = wsHighWaterMark >> 1;
     let bufferView = new Uint8Array(bufferSize), spareBuffer = new ArrayBuffer(maxChunkLen);
-    let offset = 0, transferred = checkInterval, timerId = null, isReading = false, needsFlush = false, protectFlush = false, done, value;
+    let offset = 0, transferred = checkInterval, timerId = null, done, value;
     const flushBuffer = () => {
-        if (isReading) return needsFlush = true;
         if (offset > 0) (writable.send(bufferView.subarray(0, offset)), offset = 0);
-        needsFlush = false, protectFlush = false, timerId && (clearTimeout(timerId), timerId = null);
+        timerId && (clearTimeout(timerId), timerId = null);
     };
     const reader = readable.getReader({mode: 'byob'});
     try {
@@ -426,25 +422,19 @@ const manualPipe = async (readable, writable, close) => {
                     await scheduler.wait(4);
                 }
             }
-            if (offset > 0 && protectFlush) {
+            if (offset > 0) {
                 ({done, value} = await reader.read(new Uint8Array(spareBuffer, 0, maxChunkLen)));
                 bufferView.set(value, offset), spareBuffer = value.buffer;
             } else {
-                isReading = offset > 0;
                 ({done, value} = await reader.read(new Uint8Array(bufferView.buffer, offset, maxChunkLen)));
-                isReading = false, bufferView = new Uint8Array(value.buffer);
+                bufferView = new Uint8Array(value.buffer);
             }
             if (done) break;
-            const chunkLen = value.byteLength;
-            offset += chunkLen, transferred += chunkLen;
-            if (needsFlush) {
-                flushBuffer();
-            } else {
-                timerId ||= setTimeout(flushBuffer, 2), protectFlush = chunkLen < maxChunkLen;
-                offset > safeBufferSize && flushBuffer();
-            }
+            offset += value.byteLength, transferred += value.byteLength;
+            timerId ||= setTimeout(flushBuffer, 2);
+            offset > safeBufferSize && flushBuffer();
         }
-    } catch {offset = 0, close?.()} finally {isReading = false, flushBuffer()}
+    } catch {offset = 0, close?.()} finally {flushBuffer()}
 };
 const createBufferedTcpWriter = (tcpWriter, close) => {
     const buffer = new Uint8Array(32768);

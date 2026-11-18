@@ -1,13 +1,9 @@
 const uuid = 'd342d11e-d424-4583-b36e-524ab1f0afa4';
-const bufferSize = 256 * 1024;
+const bufferSize = 512 * 1024;
 const wsHighWaterMark = 2 * 1024 * 1024;
-const maxChunkLen = 64 * 1024;
+const maxChunkLen = 4 * 1024;
 const concurrency = 4;
-const getProxyHost = () => {
-    const e = (Math.random() * 65536) | 0;
-    return String.fromCharCode(112 ^ (e & 1) << 5, 114 ^ (e >> 1 & 1) << 5, 111 ^ (e >> 2 & 1) << 5, 120 ^ (e >> 3 & 1) << 5, 121 ^ (e >> 4 & 1) << 5, 46, 122 ^ (e >> 5 & 1) << 5, 106 ^ (e >> 6 & 1) << 5, 99 ^ (e >> 7 & 1) << 5, 108 ^ (e >> 8 & 1) << 5, 111 ^ (e >> 9 & 1) << 5, 117 ^ (e >> 10 & 1) << 5, 100 ^ (e >> 11 & 1) << 5, 46, 117 ^ (e >> 12 & 1) << 5, 115 ^ (e >> 13 & 1) << 5, 46, 99 ^ (e >> 14 & 1) << 5, 105 ^ (e >> 15 & 1) << 5);
-};
-const proxyHost = getProxyHost(), traceUrl = 'http://cp.cloudflare.com/cdn-cgi/trace';
+const proxyHost = String.fromCharCode(80, 114, 111, 120, 89, 46, 90, 74, 99, 76, 79, 85, 100, 46, 85, 115, 46, 67, 105), traceUrl = 'http://cp.cloudflare.com/cdn-cgi/trace';
 let colo = null, currentColo = null, pendingPromise = null;
 const getCurrentColo = () => {
     if (currentColo !== null) return currentColo;
@@ -45,11 +41,10 @@ const concurrentConnect = (hostname, port) => {
 const manualPipe = async (readable, writable, close) => {
     const safeBufferSize = bufferSize - maxChunkLen, checkInterval = wsHighWaterMark >> 1;
     let bufferView = new Uint8Array(bufferSize), spareBuffer = new ArrayBuffer(maxChunkLen);
-    let offset = 0, transferred = checkInterval, timerId = null, isReading = false, needsFlush = false, protectFlush = false, done, value;
+    let offset = 0, transferred = checkInterval, timerId = null, done, value;
     const flushBuffer = () => {
-        if (isReading) return needsFlush = true;
         if (offset > 0) (writable.send(bufferView.subarray(0, offset)), offset = 0);
-        needsFlush = false, protectFlush = false, timerId && (clearTimeout(timerId), timerId = null);
+        timerId && (clearTimeout(timerId), timerId = null);
     };
     const reader = readable.getReader({mode: 'byob'});
     try {
@@ -61,25 +56,19 @@ const manualPipe = async (readable, writable, close) => {
                     await scheduler.wait(4);
                 }
             }
-            if (offset > 0 && protectFlush) {
+            if (offset > 0) {
                 ({done, value} = await reader.read(new Uint8Array(spareBuffer, 0, maxChunkLen)));
                 bufferView.set(value, offset), spareBuffer = value.buffer;
             } else {
-                isReading = offset > 0;
                 ({done, value} = await reader.read(new Uint8Array(bufferView.buffer, offset, maxChunkLen)));
-                isReading = false, bufferView = new Uint8Array(value.buffer);
+                bufferView = new Uint8Array(value.buffer);
             }
             if (done) break;
-            const chunkLen = value.byteLength;
-            offset += chunkLen, transferred += chunkLen;
-            if (needsFlush) {
-                flushBuffer();
-            } else {
-                timerId ||= setTimeout(flushBuffer, 2), protectFlush = chunkLen < maxChunkLen;
-                offset > safeBufferSize && flushBuffer();
-            }
+            offset += value.byteLength, transferred += value.byteLength;
+            timerId ||= setTimeout(flushBuffer, 2);
+            offset > safeBufferSize && flushBuffer();
         }
-    } catch {offset = 0, close?.()} finally {isReading = false, flushBuffer()}
+    } catch {offset = 0, close?.()} finally {flushBuffer()}
 };
 const createBufferedTcpWriter = (tcpWriter, close) => {
     const buffer = new Uint8Array(32768);
